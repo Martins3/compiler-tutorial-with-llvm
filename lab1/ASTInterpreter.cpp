@@ -58,17 +58,30 @@ public:
 	   mEnv->cast(expr);
    }
 
+   virtual void VisitArraySubscriptExpr(ArraySubscriptExpr * array){
+     VisitStmt(array);
+     mEnv->array(array);
+   }
+
    // 处理 (void *)int 之类转化
    // virtual void VisitCStyleCastExpr(CStyleCastExpr * cc){
      // DUMP(cc)
      // VisitStmt(cc);
      // mEnv->cStyleCast(cc);
    // }
+   //
+   void woo(){
+     assert(false);
+   }
 
    virtual void VisitCallExpr(CallExpr * call) {
      DUMP(call)
 	   VisitStmt(call);
-	   mEnv->call(call);
+	   auto body = mEnv->call(call);
+     if (body != nullptr) {
+       VisitStmt(body);
+       mEnv->callReturn(call);
+     }
    }
   
    virtual void VisitIntegerLiteral(IntegerLiteral * i) {
@@ -76,6 +89,11 @@ public:
      DUMP(i)
 	   VisitStmt(i);
 	   mEnv->intLiteral(i);
+   }
+
+   virtual void VisitReturnStmt(ReturnStmt * ret){
+	   VisitStmt(ret);
+	   mEnv->returnStmt(ret);
    }
 
    virtual void VisitIfStmt(IfStmt * ifstmt){
@@ -161,7 +179,7 @@ public:
 
    virtual void VisitDeclStmt(DeclStmt * declstmt) {
      DUMP(declstmt)
-	   mEnv->decl(declstmt);
+	   mEnv->decl(declstmt, this);
    }
 private:
    Environment * mEnv;

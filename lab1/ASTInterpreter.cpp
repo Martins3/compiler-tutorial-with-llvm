@@ -99,6 +99,39 @@ void Environment::typeTrait(UnaryExprOrTypeTraitExpr *tt) {
   mStack.back().bindStmt(tt, val);
 }
 
+void Environment::parenExpr(ParenExpr *p) {
+  // 直接拷贝的
+  mStack.back().setPC(p);
+  if (p->getType()->isIntegerType()) {
+    Expr *expr = p->getSubExpr();
+    lld val = mStack.back().getStmtVal(expr);
+    mStack.back().bindStmt(p, val);
+  }
+
+  else if (p->getType()->isPointerType()) {
+    if (p->getType()->isFunctionPointerType() == true) {
+      // fprintf(stderr, "%s\n",
+      // "Oh, paren come across a cute function pointer implicit cast, just "
+      // "let it go !");
+      return;
+    }
+    Expr *expr = p->getSubExpr();
+    lld val = mStack.back().getStmtVal(expr);
+    mStack.back().bindStmt(p, val);
+
+    lld addr = mHeap.getStmtVal(expr);
+    if (addr != 0)
+      mHeap.bindStmt(p, addr);
+  }
+
+  else {
+    fprintf(stderr, "%s\n", "wow, so how parent to handle this !");
+    p->getType()->dump();
+    p->dump();
+    assert(false);
+  }
+}
+
 /// !TODO Support comparison operation
 void Environment::binop(BinaryOperator *bop) {
   Expr *left = bop->getLHS();
@@ -130,9 +163,24 @@ void Environment::binop(BinaryOperator *bop) {
     }
 
   } else if (bop->isAdditiveOp()) {
-    lld rval = mStack.back().getStmtVal(right);
     lld lval = mStack.back().getStmtVal(left);
-    mStack.back().bindStmt(bop, rval + lval);
+    lld rval = mStack.back().getStmtVal(right);
+
+    lld size = 1;
+    if (left->getType()->isPointerType()) {
+      auto t = left->getType()->getPointeeType();
+      if (t->isIntegerType()) {
+        size = 4;
+      } else if (t->isCharType()) {
+      } else if (t->isPointerType()) {
+        size = 8;
+      } else {
+        TODO()
+      }
+    }
+    rval *= size;
+    mStack.back().bindStmt(bop, lval + rval);
+
   } else if (bop->isMultiplicativeOp()) {
     lld rval = mStack.back().getStmtVal(right);
     lld lval = mStack.back().getStmtVal(left);
@@ -164,8 +212,7 @@ void Environment::binop(BinaryOperator *bop) {
     mStack.back().bindStmt(bop, res);
   } else {
     bop->dump();
-    fprintf(stderr, "%s\n", "binary op Not implemented yet !");
-    assert(false);
+    TODO()
   }
 }
 
@@ -184,13 +231,16 @@ void Environment::array(ArraySubscriptExpr *array) {
   lld size; // 数据类型的长度
   if (t->isIntegerType()) {
     size = 4;
-  } else {
+  } else if(t->isPointerType()) {
+    size = 8;
+  }else{
     TODO()
   }
 
   lld offset = mStack.back().getStmtVal(rhs);
   lld base = mStack.back().getStmtVal(lhs);
-  fprintf(stderr, "array offset: %lld data size: %lld\n", offset, size);
+  fprintf(stderr, "array base : %p offset: %lld data size: %lld\n", (void *)base,
+          offset, size);
   fprintf(stderr, "array address: %p\n", (void *)(base + offset));
   fprintf(stderr, "array value : %d\n", *((int *)(base + offset)));
 
@@ -198,6 +248,10 @@ void Environment::array(ArraySubscriptExpr *array) {
 
   if (t->isIntegerType()) {
     mStack.back().bindStmt(array, *((int *)(base + offset)));
+  }else if (t->isPointerType()) {
+    mStack.back().bindStmt(array, (lld)*((int * *)(base + offset)));
+  }else{
+    TODO()
   }
   mHeap.bindStmt(array, base + offset);
 }
@@ -211,7 +265,6 @@ void Environment::uop(UnaryOperator *uo) {
     mStack.back().bindStmt(uo, -val);
   } else if (uo->getOpcode() == UnaryOperator::Opcode::UO_Deref) {
     // TODO 丑陋的hard code
-    fprintf(stderr, "ana  : %lld\n", val);
     fprintf(stderr, "ana p: %p\n", (void *)val);
     if (uo->getType()->isIntegerType()) {
       // 4 对齐
@@ -269,6 +322,8 @@ void Environment::decl(DeclStmt *declstmt, InterpreterVisitor *visitor) {
       lld val = 0;
 
       // TODO 并没有办法处理 int a[2] = {1, 2} 之类的数组初始化并且赋值的情况
+      // 只有 int a[12] 这种类型
+      // TODO 似乎无法处理二维数组
       if (auto t = dyn_cast_or_null<ConstantArrayType>(type.getTypePtr())) {
         // t->getSize().dump(); // We got the array size as an APInt here
         // t->getSizeExpr()->dump(); // 一般没有什么作用!
@@ -276,6 +331,8 @@ void Environment::decl(DeclStmt *declstmt, InterpreterVisitor *visitor) {
         auto et = t->getElementType();
         if (et->isIntegerType()) {
           val = (lld)malloc(sizeof(int) * size);
+        } else if (et->isPointerType()) {
+          val = (lld)malloc(sizeof(void *) * size);
         } else {
           TODO()
         }
@@ -283,14 +340,14 @@ void Environment::decl(DeclStmt *declstmt, InterpreterVisitor *visitor) {
                      dyn_cast_or_null<VariableArrayType>(type.getTypePtr())) {
         t->getSizeExpr()->dump();
         TODO() // 暂时不处理variableArray 的情况
-      }
-
-      Expr *e = vardecl->getInit();
-      if (e == nullptr) {
-        val = 0; // 当没有初始化部分的时候直接赋值 0
       } else {
-        visitor->VisitExpr(e);
-        val = mStack.back().getStmtVal(e);
+        Expr *e = vardecl->getInit();
+        if (e == nullptr) {
+          val = 0; // 当没有初始化部分的时候直接赋值 0
+        } else {
+          visitor->Visit(e); // !!
+          val = mStack.back().getStmtVal(e);
+        }
       }
       mStack.back().bindDecl(vardecl, val);
     }
@@ -334,9 +391,9 @@ void Environment::cast(CastExpr *castexpr) {
     // 函数指针类型的变化我们无需处理
     // 由于从 declref 的位置都是
     if (castexpr->getType()->isFunctionPointerType() == true) {
-      fprintf(stderr, "%s\n",
-              "Oh, come across a cute function pointer implicit cast, just "
-              "let it go !");
+      // fprintf(stderr, "%s\n",
+      // "Oh, come across a cute function pointer implicit cast, just "
+      // "let it go !");
       return;
     }
     // https://stackoverflow.com/questions/25359555/how-to-get-the-arguments-of-a-function-pointer-from-a-callexpr-in-clang
@@ -408,6 +465,10 @@ void Environment::callReturn(CallExpr *callexpr) {
 // 一共可以处理的类型 ?
 void InterpreterVisitor::VisitBinaryOperator(BinaryOperator *bop) {
   DUMP(bop)
+
+  // fprintf(stderr, "%s\n", "someone visit bop");
+  bop->dump();
+
   VisitStmt(bop);
   mEnv->binop(bop);
 }
@@ -441,7 +502,6 @@ void InterpreterVisitor::VisitArraySubscriptExpr(ArraySubscriptExpr *array) {
   mEnv->array(array);
 }
 
-
 void InterpreterVisitor::VisitCallExpr(CallExpr *call) {
   DUMP(call)
   VisitStmt(call);
@@ -453,9 +513,9 @@ void InterpreterVisitor::VisitCallExpr(CallExpr *call) {
 }
 
 void InterpreterVisitor::VisitIntegerLiteral(IntegerLiteral *i) {
-  // 实际上，只要想添加，可以添加任何
   DUMP(i)
-  VisitStmt(i);
+
+  // fprintf(stderr, "%s\n", "someone visit Integer literal");
   mEnv->intLiteral(i);
 }
 
@@ -485,24 +545,24 @@ void InterpreterVisitor::VisitIfStmt(IfStmt *ifstmt) {
 
   // 虽然都是 Stmt，但是有的如果被直接转化为 BinaryOperator 那么就不能使用
   // VisitStmt 的方法执行了，和expr 不同的地方是什么
-  // TODO 使用lamda 改写一下!
   if (mEnv->ifStmt(ifstmt)) {
     assert(ifstmt->getThen() != nullptr);
-    BinaryOperator *bop = dyn_cast<BinaryOperator>(ifstmt->getThen());
-    if (bop != NULL) {
-      VisitBinaryOperator(bop);
-    } else {
-      VisitStmt(ifstmt->getThen());
-    }
-
+    this->Visit(ifstmt->getThen());
+    // BinaryOperator *bop = dyn_cast<BinaryOperator>(ifstmt->getThen());
+    // if (bop != NULL) {
+    // VisitBinaryOperator(bop);
+    // } else {
+    // VisitStmt(ifstmt->getThen());
+    // }
   } else {
     if (ifstmt->getElse() != nullptr) {
-      BinaryOperator *bop = dyn_cast<BinaryOperator>(ifstmt->getElse());
-      if (bop != NULL) {
-        VisitBinaryOperator(bop);
-      } else {
-        VisitStmt(ifstmt->getElse());
-      }
+      this->Visit(ifstmt->getElse());
+      // BinaryOperator *bop = dyn_cast<BinaryOperator>(ifstmt->getElse());
+      // if (bop != NULL) {
+      // VisitBinaryOperator(bop);
+      // } else {
+      // VisitStmt(ifstmt->getElse());
+      // }
     }
   }
 }
@@ -524,7 +584,9 @@ void InterpreterVisitor::VisitForStmt(ForStmt *f) {
   BinaryOperator *inc = dyn_cast<BinaryOperator>(f->getInc());
   assert(inc != NULL);
 
-  VisitStmt(f->getInit());
+  if (f->getInit() != nullptr) {
+    VisitStmt(f->getInit());
+  }
 
   // 其实只有stmt 才可以VisitStmt 啊!
   // fprintf(stderr, "%s\n", "life is hard!");
@@ -545,12 +607,18 @@ void InterpreterVisitor::VisitForStmt(ForStmt *f) {
 void InterpreterVisitor::VisitDeclStmt(DeclStmt *declstmt) {
   DUMP(declstmt)
   // VisitStmt(declstmt);
-  // mEnv->decl(declstmt, this);
+  mEnv->decl(declstmt, this);
+}
+
+void InterpreterVisitor::VisitParenExpr(ParenExpr *p) {
+  // this->Visit(p); // TODO 根本没有搞清楚Visit的适用范围!
+  VisitStmt(p);
+  mEnv->parenExpr(p);
 }
 
 // expr and stmt are different !
 // void InterpreterVisitor::VisitVarDecl(VarDecl *vardecl){
-  // VisitStmt(vardecl);
+// VisitStmt(vardecl);
 // }
 
 // ASTConsumer is an interface used to write generic actions on an AST,

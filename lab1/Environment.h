@@ -120,8 +120,7 @@ public:
   virtual void VisitWhileStmt(WhileStmt *ws);
   virtual void VisitForStmt(ForStmt *f);
   virtual void VisitDeclStmt(DeclStmt *declstmt);
-  // virtual void VisitVarDecl(VarDecl *vardecl);
-  // lld evalExpr(Expr * e);
+  virtual void VisitParenExpr(ParenExpr *vardecl);
 };
 
 class Environment {
@@ -151,14 +150,16 @@ public:
   void cast(CastExpr *castexpr);
   void declref(DeclRefExpr *declref);
   void intLiteral(IntegerLiteral *i);
+
   void decl(DeclStmt *declstmt, InterpreterVisitor *visitor);
+  bool ifStmt(IfStmt *ifstmt);
   bool forStmt(ForStmt *f);
   bool whileStmt(WhileStmt *ws);
-  bool ifStmt(IfStmt *ifstmt);
   void uop(UnaryOperator *uo);
   void array(ArraySubscriptExpr *array);
   void binop(BinaryOperator *bop);
   void typeTrait(UnaryExprOrTypeTraitExpr *tt);
   void returnStmt(ReturnStmt *ret);
+  void parenExpr(ParenExpr * p);
   FunctionDecl *getEntry();
 };

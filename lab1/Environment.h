@@ -160,6 +160,6 @@ public:
   void binop(BinaryOperator *bop);
   void typeTrait(UnaryExprOrTypeTraitExpr *tt);
   void returnStmt(ReturnStmt *ret);
-  void parenExpr(ParenExpr * p);
+  void parenExpr(ParenExpr *p);
   FunctionDecl *getEntry();
 };

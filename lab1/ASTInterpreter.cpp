@@ -27,7 +27,7 @@ using namespace clang;
 void Environment::init(clang::ASTContext &Context) {
   // 其余的全局变量一律不管，仅仅在乎实现申明的函数
   TranslationUnitDecl *unit = Context.getTranslationUnitDecl();
-  unit->dump();
+  // unit->dump();
   auto gStatck = StackFrame();
   for (TranslationUnitDecl::decl_iterator i = unit->decls_begin(),
                                           e = unit->decls_end();
@@ -54,8 +54,8 @@ void Environment::init(clang::ASTContext &Context) {
 
       Expr::EvalResult Result;
       if (v->EvaluateAsInt(Result, Context)) {
-        fprintf(stderr, "%s\n", "bind value : ");
-        vardecl->dump();
+        // fprintf(stderr, "%s\n", "bind value : ");
+        // vardecl->dump();
         gStatck.bindDecl(vardecl, Result.Val.getInt().signedRoundToDouble());
       } else {
         gStatck.bindDecl(vardecl, 0); // 当前无法处理 int b; 的情况
@@ -141,9 +141,9 @@ void Environment::binop(BinaryOperator *bop) {
     lld val = mStack.back().getStmtVal(right);
     mStack.back().bindStmt(left, val);
 
-    fprintf(stderr, "%s\n", "assignment debug :\nleft : ");
-    left->dump();
-    fprintf(stderr, "right : %lld\n", val);
+    // fprintf(stderr, "%s\n", "assignment debug :\nleft : ");
+    // left->dump();
+    // fprintf(stderr, "right : %lld\n", val);
 
     if (DeclRefExpr *declexpr = dyn_cast<DeclRefExpr>(left)) {
       // 如果是变量赋值，重置赋值
@@ -152,8 +152,8 @@ void Environment::binop(BinaryOperator *bop) {
     } else {
       lld addr = mHeap.getStmtVal(left);
       if (left->getType()->isIntegerType()) {
-        fprintf(stderr, "%s %p %lld\n", "pointer & array assign value",
-                (void *)addr, val);
+        // fprintf(stderr, "%s %p %lld\n", "pointer & array assign value",
+        // (void *)addr, val);
         *((int *)addr) = val;
       } else if (left->getType()->isPointerType()) {
         *((lld *)addr) = val;
@@ -218,12 +218,12 @@ void Environment::binop(BinaryOperator *bop) {
 
 void Environment::array(ArraySubscriptExpr *array) {
   // array 和 deref 一样，同样利用heap的支持
-  printf("%s\n", "detect array : ");
+  // printf("%s\n", "detect array : ");
   auto lhs = array->getBase();
   auto rhs = array->getIdx();
 
-  lhs->dump();
-  rhs->dump();
+  // lhs->dump();
+  // rhs->dump();
 
   // 如果不是指针类型，那么无法了解!
   auto t = lhs->getType()->getPointeeType();
@@ -231,26 +231,26 @@ void Environment::array(ArraySubscriptExpr *array) {
   lld size; // 数据类型的长度
   if (t->isIntegerType()) {
     size = 4;
-  } else if(t->isPointerType()) {
+  } else if (t->isPointerType()) {
     size = 8;
-  }else{
+  } else {
     TODO()
   }
 
   lld offset = mStack.back().getStmtVal(rhs);
   lld base = mStack.back().getStmtVal(lhs);
-  fprintf(stderr, "array base : %p offset: %lld data size: %lld\n", (void *)base,
-          offset, size);
-  fprintf(stderr, "array address: %p\n", (void *)(base + offset));
-  fprintf(stderr, "array value : %d\n", *((int *)(base + offset)));
+  // fprintf(stderr, "array base : %p offset: %lld data size: %lld\n", (void
+  // *)base, offset, size);
+  // fprintf(stderr, "array address: %p\n", (void *)(base + offset));
+  // fprintf(stderr, "array value : %d\n", *((int *)(base + offset)));
 
   offset *= size;
 
   if (t->isIntegerType()) {
     mStack.back().bindStmt(array, *((int *)(base + offset)));
-  }else if (t->isPointerType()) {
-    mStack.back().bindStmt(array, (lld)*((int * *)(base + offset)));
-  }else{
+  } else if (t->isPointerType()) {
+    mStack.back().bindStmt(array, (lld) * ((int **)(base + offset)));
+  } else {
     TODO()
   }
   mHeap.bindStmt(array, base + offset);
@@ -265,7 +265,7 @@ void Environment::uop(UnaryOperator *uo) {
     mStack.back().bindStmt(uo, -val);
   } else if (uo->getOpcode() == UnaryOperator::Opcode::UO_Deref) {
     // TODO 丑陋的hard code
-    fprintf(stderr, "ana p: %p\n", (void *)val);
+    // fprintf(stderr, "ana p: %p\n", (void *)val);
     if (uo->getType()->isIntegerType()) {
       // 4 对齐
       int *tmp = (int *)val;
@@ -407,7 +407,7 @@ void Environment::cast(CastExpr *castexpr) {
   }
 
   else {
-    fprintf(stderr, "%s\n", "wow, so how to handle this !");
+    // fprintf(stderr, "%s\n", "wow, so how to handle this !");
     castexpr->getType()->dump();
     castexpr->dump();
     assert(false);
@@ -437,8 +437,8 @@ Stmt *Environment::call(CallExpr *callexpr) {
     val = mStack.back().getStmtVal(decl);
     auto addr = malloc(val);
     mStack.back().bindStmt(callexpr, (lld)addr);
-    fprintf(stderr, "ana  : %lld\n", (lld)addr);
-    fprintf(stderr, "ana p: %p\n", addr);
+    // fprintf(stderr, "ana  : %lld\n", (lld)addr);
+    // fprintf(stderr, "ana p: %p\n", addr);
   } else {
     StackFrame s;
     auto paraCount = callee->getNumParams();
@@ -467,7 +467,7 @@ void InterpreterVisitor::VisitBinaryOperator(BinaryOperator *bop) {
   DUMP(bop)
 
   // fprintf(stderr, "%s\n", "someone visit bop");
-  bop->dump();
+  // bop->dump();
 
   VisitStmt(bop);
   mEnv->binop(bop);

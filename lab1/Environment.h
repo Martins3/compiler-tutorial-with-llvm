@@ -32,12 +32,19 @@ class StackFrame {
   /// The current stmt
   Stmt *mPC;
   lld returnVal;
+  bool stop_now; // 遇到reutrn，停止递归
 
 public:
-  StackFrame() : mVars(), mExprs(), mPC(), returnVal(4397) {}
+  StackFrame() : mVars(), mExprs(), mPC(), returnVal(4397), stop_now(false) {}
 
+  // 如果检测到stop_now 所有的动作停止，当最后
   lld getReturnVal() { return returnVal; }
-  void setReturnVal(lld ret) { returnVal = ret; }
+
+  bool isStopping() { return stop_now; }
+  void setReturnVal(lld ret) {
+    stop_now = true;
+    returnVal = ret;
+  }
 
   // Decl 和 Stmt 有什么区别
   void bindDecl(Decl *decl, lld val) {
@@ -162,4 +169,5 @@ public:
   void returnStmt(ReturnStmt *ret);
   void parenExpr(ParenExpr *p);
   FunctionDecl *getEntry();
+  bool isStopping();
 };

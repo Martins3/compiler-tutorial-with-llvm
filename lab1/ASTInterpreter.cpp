@@ -23,6 +23,12 @@ using namespace clang;
     x->dump();                                                                 \
   }
 
+// 访问节点总是从Visitor中间进入，只要在其中拦截即可!
+#define STOP()                                                                 \
+  if (mEnv->isStopping()) {                                                    \
+    return;                                                                    \
+  }
+
 /// Initialize the Environment
 void Environment::init(clang::ASTContext &Context) {
   // 其余的全局变量一律不管，仅仅在乎实现申明的函数
@@ -88,6 +94,7 @@ void Environment::returnStmt(ReturnStmt *ret) {
 void Environment::typeTrait(UnaryExprOrTypeTraitExpr *tt) {
   lld val;
   if (tt->getArgumentType()->isIntegerType()) {
+    // char 类型在此处也会被捕获
     val = sizeof(int);
   } else if (tt->getArgumentType()->isPointerType()) {
     val = sizeof(void *);
@@ -179,8 +186,13 @@ void Environment::binop(BinaryOperator *bop) {
       }
     }
     rval *= size;
-    mStack.back().bindStmt(bop, lval + rval);
-
+    if (bop->getOpcodeStr() == "+") {
+      mStack.back().bindStmt(bop, lval + rval);
+    } else if (bop->getOpcodeStr() == "-") {
+      mStack.back().bindStmt(bop, lval - rval);
+    } else {
+      TODO()
+    }
   } else if (bop->isMultiplicativeOp()) {
     lld rval = mStack.back().getStmtVal(right);
     lld lval = mStack.back().getStmtVal(left);
@@ -446,12 +458,17 @@ Stmt *Environment::call(CallExpr *callexpr) {
       Expr *decl = callexpr->getArg(i);
       val = mStack.back().getStmtVal(decl);
       s.bindDecl(callee->getParamDecl(i), val);
+      // fprintf(stderr, "debug parameter binding: \n");
+      // callee->getParamDecl(i)->dump();
+      // fprintf(stderr, "%lld \n", val);
     }
     mStack.push_back(s);
     return callee->getBody();
   }
   return nullptr;
 }
+
+bool Environment::isStopping() { return mStack.back().isStopping(); }
 
 void Environment::callReturn(CallExpr *callexpr) {
   FunctionDecl *callee = callexpr->getDirectCallee();
@@ -464,6 +481,7 @@ void Environment::callReturn(CallExpr *callexpr) {
 
 // 一共可以处理的类型 ?
 void InterpreterVisitor::VisitBinaryOperator(BinaryOperator *bop) {
+  STOP()
   DUMP(bop)
 
   // fprintf(stderr, "%s\n", "someone visit bop");
@@ -474,12 +492,14 @@ void InterpreterVisitor::VisitBinaryOperator(BinaryOperator *bop) {
 }
 
 void InterpreterVisitor::VisitUnaryOperator(UnaryOperator *uo) {
+  STOP()
   DUMP(uo)
   VisitStmt(uo);
   mEnv->uop(uo);
 }
 
 void InterpreterVisitor::VisitDeclRefExpr(DeclRefExpr *expr) {
+  STOP()
   DUMP(expr)
   VisitStmt(expr);
   mEnv->declref(expr);
@@ -487,22 +507,26 @@ void InterpreterVisitor::VisitDeclRefExpr(DeclRefExpr *expr) {
 
 void InterpreterVisitor::VisitUnaryExprOrTypeTraitExpr(
     UnaryExprOrTypeTraitExpr *tt) {
+  STOP()
   DUMP(tt)
   mEnv->typeTrait(tt);
 }
 
 void InterpreterVisitor::VisitCastExpr(CastExpr *expr) {
+  STOP()
   DUMP(expr)
   VisitStmt(expr);
   mEnv->cast(expr);
 }
 
 void InterpreterVisitor::VisitArraySubscriptExpr(ArraySubscriptExpr *array) {
+  STOP()
   VisitStmt(array);
   mEnv->array(array);
 }
 
 void InterpreterVisitor::VisitCallExpr(CallExpr *call) {
+  STOP()
   DUMP(call)
   VisitStmt(call);
   auto body = mEnv->call(call);
@@ -513,6 +537,7 @@ void InterpreterVisitor::VisitCallExpr(CallExpr *call) {
 }
 
 void InterpreterVisitor::VisitIntegerLiteral(IntegerLiteral *i) {
+  STOP()
   DUMP(i)
 
   // fprintf(stderr, "%s\n", "someone visit Integer literal");
@@ -520,11 +545,14 @@ void InterpreterVisitor::VisitIntegerLiteral(IntegerLiteral *i) {
 }
 
 void InterpreterVisitor::VisitReturnStmt(ReturnStmt *ret) {
+  STOP()
+  // 需要设置遇到return 立刻返回
   VisitStmt(ret);
   mEnv->returnStmt(ret);
 }
 
 void InterpreterVisitor::VisitIfStmt(IfStmt *ifstmt) {
+  STOP()
   // https://clang.llvm.org/doxygen/classclang_1_1IfStmt.html
 
   // VisitStmt(ifstmt->getCond()) 是访问子节点的含义
@@ -568,6 +596,7 @@ void InterpreterVisitor::VisitIfStmt(IfStmt *ifstmt) {
 }
 
 void InterpreterVisitor::VisitWhileStmt(WhileStmt *ws) {
+  STOP()
   BinaryOperator *bop = dyn_cast<BinaryOperator>(ws->getCond());
   assert(bop != NULL);
 
@@ -579,6 +608,7 @@ void InterpreterVisitor::VisitWhileStmt(WhileStmt *ws) {
 }
 
 void InterpreterVisitor::VisitForStmt(ForStmt *f) {
+  STOP()
   BinaryOperator *bop = dyn_cast<BinaryOperator>(f->getCond());
   assert(bop != NULL);
   BinaryOperator *inc = dyn_cast<BinaryOperator>(f->getInc());
@@ -605,12 +635,14 @@ void InterpreterVisitor::VisitForStmt(ForStmt *f) {
 }
 
 void InterpreterVisitor::VisitDeclStmt(DeclStmt *declstmt) {
+  STOP()
   DUMP(declstmt)
   // VisitStmt(declstmt);
   mEnv->decl(declstmt, this);
 }
 
 void InterpreterVisitor::VisitParenExpr(ParenExpr *p) {
+  STOP()
   // this->Visit(p); // TODO 根本没有搞清楚Visit的适用范围!
   VisitStmt(p);
   mEnv->parenExpr(p);
@@ -671,10 +703,13 @@ public:
 
 int main(int argc, char **argv) {
   if (argc == 2) {
-    clang::tooling::runToolOnCode(
-        clang::tooling::newFrontendActionFactory<InterpreterClassAction>()
-            ->create(),
-        argv[1]);
+    clang::tooling::runToolOnCode(new InterpreterClassAction, argv[1]);
+
+    // for llvm-10
+    // clang::tooling::runToolOnCode(
+    // clang::tooling::newFrontendActionFactory<InterpreterClassAction>()
+    // ->create(),
+    // argv[1]);
   } else {
     std::cout << "usage :\n\t./lab1 input.cc " << std::endl;
   }

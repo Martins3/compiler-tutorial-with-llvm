@@ -8,6 +8,7 @@ EXE=$BUILD/bin/lab1
 cd $BUILD
 if [ "$#" -eq 1 ]; then
   ninja
+  # ninja -t compdb cxx > compile_commands.json
 fi
 
 if [ $1 == "all" ]; then
@@ -17,7 +18,7 @@ if [ $1 == "all" ]; then
     echo " "
     
     if [ $? -ne 0 ]; then
-      echo "faile at $i"
+      echo "fail at $i"
     fi
 
   done

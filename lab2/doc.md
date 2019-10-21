@@ -1,3 +1,4 @@
+# offical doc
 作业指导
 output format：
 
@@ -62,3 +63,8 @@ The output should be :
 36 : foo
 37 : fprintf
 39 : fprintf
+
+# links
+https://www.inf.ed.ac.uk/teaching/courses/ct/17-18/slides/llvm-2-writing_pass.pdf
+http://llvm.org/docs/WritingAnLLVMPass.html
+

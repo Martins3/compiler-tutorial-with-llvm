@@ -12,14 +12,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <llvm/Support/CommandLine.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/Support/ToolOutputFile.h>
-#include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/Utils.h>
+#include <llvm/IR/Module.h>
+
 
 #include "llvm/IR/Function.h"
 #include "llvm/Pass.h"
@@ -36,7 +37,7 @@ struct FuncPtrPass : public FunctionPass {
   bool runOnFunction(Function &F) override {
     errs() << "Hello: ";
     errs().write_escaped(F.getName()) << '\n';
-    F.dump();
+    // F.dump();
     return false;
   }
 };
@@ -52,7 +53,8 @@ InputFilename(cl::Positional,
 
 
 int main(int argc, char **argv) {
-   LLVMContext &Context = getGlobalContext();
+   // https://stackoverflow.com/questions/41760481/what-should-i-replace-getglobalcontext-with-in-llvm-3-9-1
+   static LLVMContext Context;
    SMDiagnostic Err;
    // Parse the command line to read the Inputfilename
    cl::ParseCommandLineOptions(argc, argv,
@@ -75,4 +77,3 @@ int main(int argc, char **argv) {
    Passes.add(new FuncPtrPass());
    Passes.run(*M.get());
 }
-

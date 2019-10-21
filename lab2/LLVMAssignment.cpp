@@ -12,28 +12,25 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <llvm/IRReader/IRReader.h>
 #include <llvm/IR/LLVMContext.h>
-#include <llvm/Support/SourceMgr.h>
 #include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IRReader/IRReader.h>
+#include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
-#include <llvm/IR/Module.h>
-
 
 #include "llvm/IR/Function.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
-
 ///!TODO TO BE COMPLETED BY YOU FOR ASSIGNMENT 2
 struct FuncPtrPass : public FunctionPass {
   static char ID; // Pass identification, replacement for typeid
   FuncPtrPass() : FunctionPass(ID) {}
 
-  
   bool runOnFunction(Function &F) override {
     errs() << "Hello: ";
     errs().write_escaped(F.getName()) << '\n';
@@ -42,38 +39,34 @@ struct FuncPtrPass : public FunctionPass {
   }
 };
 
-
 char FuncPtrPass::ID = 0;
-static RegisterPass<FuncPtrPass> X("funcptrpass", "Print function call instruction");
+static RegisterPass<FuncPtrPass> X("funcptrpass",
+                                   "Print function call instruction");
 
 static cl::opt<std::string>
-InputFilename(cl::Positional,
-              cl::desc("<filename>.bc"),
-              cl::init(""));
-
+    InputFilename(cl::Positional, cl::desc("<filename>.bc"), cl::init(""));
 
 int main(int argc, char **argv) {
-   // https://stackoverflow.com/questions/41760481/what-should-i-replace-getglobalcontext-with-in-llvm-3-9-1
-   static LLVMContext Context;
-   SMDiagnostic Err;
-   // Parse the command line to read the Inputfilename
-   cl::ParseCommandLineOptions(argc, argv,
-                              "FuncPtrPass \n My first LLVM too which does not do much.\n");
+  // https://stackoverflow.com/questions/41760481/what-should-i-replace-getglobalcontext-with-in-llvm-3-9-1
+  static LLVMContext Context;
+  SMDiagnostic Err;
+  // Parse the command line to read the Inputfilename
+  cl::ParseCommandLineOptions(
+      argc, argv, "FuncPtrPass \n My first LLVM too which does not do much.\n");
 
+  // Load the input module
+  std::unique_ptr<Module> M = parseIRFile(InputFilename, Err, Context);
+  if (!M) {
+    Err.print(argv[0], errs());
+    return 1;
+  }
 
-   // Load the input module
-   std::unique_ptr<Module> M = parseIRFile(InputFilename, Err, Context);
-   if (!M) {
-      Err.print(argv[0], errs());
-      return 1;
-   }
+  llvm::legacy::PassManager Passes;
 
-   llvm::legacy::PassManager Passes;
+  /// Transform it to SSA
+  Passes.add(llvm::createPromoteMemoryToRegisterPass());
 
-   ///Transform it to SSA
-   Passes.add(llvm::createPromoteMemoryToRegisterPass());
-
-   /// Your pass to print Function and Call Instructions
-   Passes.add(new FuncPtrPass());
-   Passes.run(*M.get());
+  /// Your pass to print Function and Call Instructions
+  Passes.add(new FuncPtrPass());
+  Passes.run(*M.get());
 }

@@ -68,3 +68,88 @@ The output should be :
 https://www.inf.ed.ac.uk/teaching/courses/ct/17-18/slides/llvm-2-writing_pass.pdf
 http://llvm.org/docs/WritingAnLLVMPass.html
 
+# goal
+作业2 （20分）
+1.  目的： 熟悉LLVM中间表示，use-def链
+2. 对bitcode文件中的函数调用指令
+    1.  直接调用:  打印被调用函数的名称和行号 （5分）
+    2.  函数指针
+        1.  计算出可能调用的函数 （10分）
+        2.  如果可能调用的函数确定，将其替换成直接调用(5分）
+        3.  不考虑当函数指针被Store到memory中的情况
+3. Bonus: 10分，考虑函数指针被Store到memory中的情况
+
+# some doc
+We go over LLVM data structures through iterators. 
+• An iterator over a Module gives us a list of FuncAons. 
+• An iterator over a Func@on gives us a list of basic blocks. 
+• An iterator over a Block gives us a list of instrucAons. 
+• And we can iterate over the operands of the instrucAon too.
+
+https://stackoverflow.com/questions/30195204/how-to-parse-llvm-ir-line-by-line
+https://stackoverflow.com/questions/54193082/how-to-get-the-original-source-and-line-number-in-llvm
+https://stackoverflow.com/questions/18305965/get-c-c-source-code-data-from-llvm-ir
+
+
+http://llvm.org/docs/ProgrammersManual.html
+1. http://llvm.org/docs/ProgrammersManual.html#advanced-topics
+2. http://llvm.org/docs/ProgrammersManual.html#the-core-llvm-class-hierarchy-reference
+3. http://llvm.org/docs/ProgrammersManual.html#iterating-over-def-use-use-def-chains
+> 提供了插入新的指令API
+
+
+
+
+
+
+# TODO
+1. bc 格式  中间表示 ?
+2. 获取函数名称 行号 ?
+3. block 的划分依据是什么啊 ?
+4. CallInst 和 InvokeInst 的区别是什么？
+5. def-use chain   Value类型中间Use
+
+1. 01 如果知道def-use chain，test02 的赋值是唯一的，根本不用思考的。
+2. 02 列出plus 的所有可能即可 !
+3. 03 同上
+4. 04 基于函数参数的def use chain
+5. 05 nothing new
+6. 06 去掉明显不科学的数值
+7. 07 相信llvm 的def use chain 可能的
+8. 08 
+
+> 测试样例没有处理 bonus 的情况!
+
+函数指针不会实行increment 的，只有赋值运算，那么
+
+# 理论补充
+1. 构造调用图
+2. 为什么需要构造出来dominance frontier 来 ?
+    1. 计算应该很简单，大约划分为两种
+
+3. 重命名的过程：
+    1. 首先插入 fi (感觉没有什么困难的)
+    2. 再也不需要的内容了 !
+
+# 函数指针带来的挑战
+
+如果出现对于af_ptr 的多次条件赋值
+1. 当前函数指针被赋值给?
+2. 计算当前函数哪一个GlobalVar 中间ref 过 ?
+3. 总是自下向上的 ?
+   1. function need premiter ? => map
+   2. 分析调用的时候:
+       1. 询问当前函数指针可能是什么，如果别人没有使用，那不是非常的尴尬?
+       2. 对于参数需要赋值，只要检查参数的类型是fp 那么就是需要提供赋值的，建立一个表格!
+
+
+4. 如果我们可以建立函数调用流程图
+  1. 就算是建立了函数流程图，那么又怎么样啊 ?
+
+
+5. https://llvm.org/doxygen/classllvm_1_1CallGraph.html
+    1. callGraph 中间提供三个 CallGraphNode 返回调用过的函数和自身
+    2. 
+
+6. phi 检查一下内置的
+ https://llvm.org/doxygen/classllvm_1_1PHINode.html

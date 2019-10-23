@@ -152,4 +152,126 @@ http://llvm.org/docs/ProgrammersManual.html
     2. 
 
 6. phi 检查一下内置的
- https://llvm.org/doxygen/classllvm_1_1PHINode.html
+https://llvm.org/doxygen/classllvm_1_1PHINode.html
+
+7. phi 需要O3 观望一下!
+
+callGraph 似乎只是普通的ref 内容，
+希望可以提供那个函数ref 过，或者是哪一个指令ref过
+
+为什么调用流程图类似:
+1. 如果你知道你调用过该函数，那么一条调用指令确定了该
+函数的使用啊!
+
+# 分析一波函数
+1. 处理掉直接调用 和 收集函数指针变量
+2. 对于过程变量进行传播。
+
+
+# todo
+2. 基于Instruction 导致事情难以操作，参数，指令，指令中间的operand都是value
+value 中间本身就是持有use list 的啊!
+
+1. 向上查找store 到的value是什么东西?
+
+2. map< call Instruction, class < parameter, return value, Function * >
+
+3. 当前模型的基础:
+    1. callInst get local store !
+    2. 对于函数指针指令，对于函数指针和指针参数令分别向上的分析，
+
+
+4. 存在递归调用的情况，无法求解。
+5. 处理的方法: 只要内容稳定就停止
+```c
+typedef void(*P)();
+
+void a(P p);
+void b(P p){
+  a(p);
+}
+
+
+void a(P p){
+  p();
+  b(p);
+}
+
+// 递归的含义，自己调用自己情况 !
+```
+
+
+```cpp
+    // Module *M = F.getParent();
+    // CallGraph cg = CallGraph((*M));
+    // F.dump();
+    // cg.dump(); // this is correct. It is printing the expected the call graph
+
+    for (CallGraph::const_iterator itr = cg.begin(), ie = cg.end(); itr != ie;
+         itr++) {
+
+      if (itr->first != nullptr) {
+        itr->first->dump();
+      } else {
+        errs() << "function is null, we don't know why\n";
+      }
+
+      if (itr->second != nullptr) {
+        errs() << "----------dump Graph node---\n";
+        itr->second->dump();
+        errs() << "-----------CGN---------\n";
+        CallGraphNode *cgn = itr->second.get();
+
+        if (const Function *fptr = cgn->getFunction()) {
+          errs() << "Number of references are" << cgn->getNumReferences()
+                 << "\n";
+          errs() << "My name : " << fptr->getName() << "\n";
+          // refNum 并不是数值，而仅仅对于名称的使用!
+
+          // 可以查出来使用哪一个函数，如果直接找到其中的instruction就好了
+          errs() << "**********\n";
+          for (auto ref = cgn->begin(); ref != cgn->end(); ref++) {
+            ref->second->dump();
+          }
+          errs() << "**********\n";
+
+
+          // 描述的ref 的函数
+          errs() << cgn->size() << "\n";
+          errs() << cgn->empty() << "\n";
+
+          // called by this node
+          // TODO 首先检查一下是否调用过函数
+
+          errs() << "List function ref by me : \n";
+          if (auto f = cgn->size() > 0) {
+            for (int i = 0; i < f; ++i) {
+              if (auto node = cgn->operator[](i)) {
+                node->dump();
+                if (node->getFunction() != nullptr) {
+                  errs() << cgn->operator[](0)->getFunction()->getName()
+                         << "\n";
+                  auto f = cgn->operator[](0)->getFunction();
+                  f->dump();
+                }
+              }
+            }
+          }
+          errs() << "List function ref by me end\n";
+        }
+      }
+    }
+```
+
+```cpp
+// 测试显示，如果不添加-g 根本没有办法获取行号
+          if(auto debug = inst->getDebugLoc()){
+            if(debug.isImplicitCode()){
+                errs() << debug.getLine() << " : ";
+            }else{
+                errs() << "not implicit ";
+                TODO();
+            }
+          }
+```
+

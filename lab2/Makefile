@@ -26,16 +26,17 @@ debug: ${RUN_DEP}
 clean:
 	rm ../test2-app/case.bc
 
-test:
-	echo $(LIBS_PATH)
 
 cp:
 	cp ../test2/test15.c ../test2-app/case.c
 #----------------------------
 
 
+test: ${TEST_CASE}
+	@echo "refresh case"
+
 %.bc: %.c
-	clang -c -emit-llvm -O0 $< -o $@ -g
+	clang -c -emit-llvm -O0 $< -o $@
 
 ra: ${RUN_DEP}
 	 @for test in ${TEST_CASE}; do \

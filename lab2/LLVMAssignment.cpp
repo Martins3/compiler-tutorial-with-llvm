@@ -34,6 +34,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Instructions.h>
+#include <set>
 
 using namespace llvm;
 
@@ -52,24 +53,116 @@ struct FuncPtrPass : public FunctionPass {
   }
 
   void print_use_list(Instruction *inst) {
-
     for (Use &U : inst->operands()) {
       Value *v = U.get();
+      // errs() << "id : " << v->getValueID() << "\t";
       if (dyn_cast<Instruction>(v)) {
         errs() << "\"" << *dyn_cast<Instruction>(v) << "\""
                << " -> "
                << "\"" << *inst << "\""
                << ";\n";
+      } else {
+        // 在此处抽出全局函数来 !
+        if (v->getName() != "") {
+          errs() << "\"" << v->getName() << "\""
+                 << " -> "
+                 << "\"" << *inst << "\""
+                 << ";\n";
+          errs() << "\"" << v->getName() << "\""
+                 << " [ color = red ]\n";
+        } else {
+          // 含有依赖，但是函数名称
+          // value 就是唯一确定的
+          if (auto f = dyn_cast<Argument>(v)) {
+            errs() << f->getArgNo() << "\t";
+          }
+
+          errs() << "\"" << *v << "\""
+                 << " -> "
+                 << "\"" << *inst << "\""
+                 << ";\n";
+        }
       }
-      // 在此处抽出全局函数来 !
-      if (v->getName() != "") {
-        errs() << "\"" << v->getName() << "\""
-               << " -> "
-               << "\"" << *inst << "\""
-               << ";\n";
-        errs() << "\"" << v->getName() << "\""
-               << " [ color = red ]\n";
-      }
+    }
+  }
+
+  /**
+   * 参数: 函数指针 参数函数指针
+   * 返回值: store location value，根据当前的模型，数值来源总是在函数中间
+   */
+  Value *get_store_to(Value *me) {
+    // load
+    return nullptr;
+  }
+
+  // Origin 是一个节点!
+  struct Origin {
+    Function * F; // 当前Origin 对对应的函数
+    std::set<Function *> fun; // 直接函数赋值传递过来的
+
+    // Origin 需要和具体函数挂钩!
+    std::set<unsigned int> para; // 多个函数参数
+    // 需要进一步调用 : call指令给参数的trace !
+
+    std::set<Origin *> ret; // 多个函数的ret value !
+    // 表示为这些来源的返回值 !
+
+    bool pending() { return para.size() > 0 || ret.size() > 0; }
+  };
+
+  // 1. 第一次遍历 和 之后的遍历
+  // 2. 虽然没有初始化，但是关系需要架构起来
+
+  // function => a vector of Origin :
+  struct FuncRetPara {
+    Origin ret;
+    std::vector<Origin> para;
+  };
+
+  // graph 的连接 : invoke 指令 和 ret 指令
+
+  // 由函数定义形成的连接关系
+  std::map<Function *, FuncRetPara *> function_define_bridge;
+
+  // inv 形成的bridge 
+  std::map<Origin *, FuncRetPara *> value_end;
+
+
+  /**
+   * 1. 首次访问函数建立的内容
+   * 2. 
+   */
+  void set_up_function_bridge(Function *func) {
+    
+  }
+  
+
+  /**
+   * 参数:局部变量 alloc 的内容
+   *
+   * ret :
+   * 1. 函数参数的编号
+   * 2. Function *
+   * 3. 那几个函数的返回值!
+   *
+   */
+  void possible_value(Value *loc) {}
+
+  // while 到没有什么可做的就可以了!
+
+  // 根据基本块向上搜索
+  // 1. 来源: 全局函数，参数，函数返回值
+  // 2. 函数参数 : 谁调用过函数，并且向函数参数的传递数值是什么 ?
+  // 3. 返回值: 返回可选项是什么
+  //
+  // 4. 小心递归
+
+  void reverse_transverse(BasicBlock *block) {
+    errs() << "block : " << *block << "\n";
+    for (auto it = pred_begin(&*block), et = pred_end(&*block); it != et;
+         ++it) {
+      BasicBlock *predecessor = *it;
+      errs() << "pre : " << *predecessor << "\n";
     }
   }
 
@@ -139,45 +232,18 @@ struct FuncPtrPass : public FunctionPass {
     LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
     errs().write_escaped(F.getName());
     errs() << " : ";
-    Module *M = F.getParent();
-    CallGraph cg = CallGraph((*M));
-    cg.dump(); // this is correct. It is printing the expected the call graph
-
-    for (CallGraph::const_iterator itr = cg.begin(), ie = cg.end(); itr != ie;
-         itr++) {
-      if (itr->second != nullptr) {
-        itr->second->dump();
-        errs() << "-----------CGN---------\n";
-        CallGraphNode *cgn = itr->second.get();
-
-        if (const Function *fptr = cgn->getFunction()) {
-          errs() << "Number of references are" << cgn->getNumReferences()
-                 << "\n";
-          errs() << fptr->getName() << "\n";
-
-          if (cgn->operator[](0) != nullptr) {
-            if (cgn->operator[](0)->getFunction() != nullptr) {
-              errs() << cgn->operator[](0)->getFunction()->getName() << "\n";
-            }
-          }
-        }
-      }
-    }
 
     errs() << F << "\n";
-
     // 函数指针递归处理
-    errs() << "digraph " + F.getName() + "{\n";
-    errs() << "\n";
+    // errs() << "digraph " + F.getName() + "{\n";
+    // errs() << "\n";
+    for (auto a = F.arg_begin(); a != F.arg_end(); a++) {
+      errs() << a->getArgNo() << "\t";
+      errs() << a->getValueID() << "\t";
+      errs() << *a << "\n";
+    }
     for (auto block = F.getBasicBlockList().begin();
          block != F.getBasicBlockList().end(); block++) {
-
-      errs() << "block : " << *block << "\n";
-      for (auto it = pred_begin(&*block), et = pred_end(&*block); it != et;
-           ++it) {
-        BasicBlock *predecessor = *it;
-        errs() << "pre : " << *predecessor << "\n";
-      }
 
       // 赋值节点
       // 1. 对于函数指针，可以非常简单的找到最开始的变量的内容
@@ -192,14 +258,24 @@ struct FuncPtrPass : public FunctionPass {
       // 1. 找到其中关于其中那些，没有赋值的继续，有赋值向上。
       // 2. 如果在当前block 中间直接捕获，那么直接GG
       //
-      //
       // 3. 函数参数如何处理 ?
-
-      errs();
+      //    1. 遍历函数，对于call 之间的依赖管理清楚:
+      //    比如来自于第一个函数参数，似乎只有参数传递的东西需要记录，其余直接在本函数处理
+      //    2.
+      //
 
       for (auto inst = block->begin(); inst != block->end(); inst++) {
         // 对于每一个instruction 查询功能
-        errs() << "inst -----------> " << *inst << "\n";
+        // errs() << "inst -----------> " << *inst << "\n";
+
+        // TODO 如何理解instruction 是一个value ?
+        auto o = inst->getOperandList();
+        inst->getNumUses();
+        errs() << "opNo : " << o->getOperandNo() << "\t";
+        print_use_list(&*inst);
+
+        continue;
+        TODO();
         if (isa<CallInst>(&(*inst)) || isa<InvokeInst>(&(*inst))) {
           CallInst *t = cast<CallInst>(&(*inst));
           // TODO getFunction() 居然是获取当前的functionf
@@ -207,40 +283,22 @@ struct FuncPtrPass : public FunctionPass {
             // 似乎必须添加-g
             if (f->getName() != "llvm.dbg.declare") {
               errs() << "emmmmmmmmmm\t";
-              // get name ?
               auto debug = inst->getDebugLoc();
-              // if (debug.isImplicitCode()) {
-              // errs() << "implicit ";
-              // }else{
-              // errs() << "not implicit ";
-              // }
-              errs() << debug.getLine() << " : ";
-              errs() << f->getName() << "\n";
+              if (debug.isImplicitCode()) {
+                errs() << "implicit ";
+                errs() << debug.getLine() << " : ";
+                errs() << f->getName() << "\n";
+              } else {
+                errs() << "not implicit ";
+                TODO();
+              }
             }
           } else {
             trace(&(*inst));
           }
         } else {
-          continue;
+          // continue;
           // 不是所有指令都是含有 operands 依赖的
-          for (Use &U : inst->operands()) {
-            Value *v = U.get();
-            if (dyn_cast<Instruction>(v)) {
-              errs() << "\"" << *dyn_cast<Instruction>(v) << "\""
-                     << " -> "
-                     << "\"" << *inst << "\""
-                     << ";\n";
-            }
-            // 无力处理函数参数
-            if (v->getName() != "") {
-              errs() << "\"" << v->getName() << "\""
-                     << " -> "
-                     << "\"" << *inst << "\""
-                     << ";\n";
-              errs() << "\"" << v->getName() << "\""
-                     << " [ color = red ]\n";
-            }
-          }
         }
       }
     }
@@ -252,8 +310,6 @@ struct FuncPtrPass : public FunctionPass {
            << (F.hasAddressTaken() == true ? "true" : "false") << "\n";
     // 获取函数的 entry block ?
     F.getEntryBlock();
-
-    // F.dump();
 
     // https://stackoverflow.com/questions/43648780/get-filename-and-location-from-function
     // SmallVector<std::pair<unsigned, MDNode *>, 4> MDs;

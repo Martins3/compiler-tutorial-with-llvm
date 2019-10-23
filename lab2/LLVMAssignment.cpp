@@ -97,7 +97,10 @@ struct FuncPtrPass : public FunctionPass {
 
   // Origin 是一个节点!
   struct Origin {
-    Function * F; // 当前Origin 对对应的函数
+    Function *F; // 当前Origin 对对应的函数
+    Value *V;
+    Origin(Function *f, Value *v) : F(f), V(v){};
+
     std::set<Function *> fun; // 直接函数赋值传递过来的
 
     // Origin 需要和具体函数挂钩!
@@ -106,36 +109,96 @@ struct FuncPtrPass : public FunctionPass {
 
     std::set<Origin *> ret; // 多个函数的ret value !
     // 表示为这些来源的返回值 !
-
+    // %3 = call plus
+    // %3 = call plus
     bool pending() { return para.size() > 0 || ret.size() > 0; }
   };
 
-  // 1. 第一次遍历 和 之后的遍历
-  // 2. 虽然没有初始化，但是关系需要架构起来
-
-  // function => a vector of Origin :
-  struct FuncRetPara {
-    Origin ret;
-    std::vector<Origin> para;
-  };
-
-  // graph 的连接 : invoke 指令 和 ret 指令
-
   // 由函数定义形成的连接关系
-  std::map<Function *, FuncRetPara *> function_define_bridge;
+  std::map<Function *, Origin *> function_ret;
 
-  // inv 形成的bridge 
-  std::map<Origin *, FuncRetPara *> value_end;
+  // inv 形成的bridge
+  std::map<Origin *, std::vector<Origin *>> para_pas;
+  // 如果不是fptr，为nullptr
 
+  // 所有的节点 : 返回值 函数 和
+  std::set<Origin *> nodes;
+
+  // 向上遍历，检查store 指令即可 
+  void make_Origin(Value * v){
+
+  }
+
+  Value * get_alloc(Value * v){
+
+    return NULL;
+  }
+
+  void collect_nodes() {
+    // graph 的连接 : invoke 指令 和 ret 指令
+    // 1. 遍历到invoke (2) / ret (1) 收集 
+    // 2. 图节点中间的信息如何传播
+    // 3. 停止的方法是什么.
+  }
+
+  // 定义多个pass
+  // 1. 首先收集信息 上面两条内容
+
+  // 不要递归啊!
+  bool dig_me(Origin *ori) {
+    
+    auto size = ori->fun.size();
+    if (ori->pending()) {
+      for (auto index : ori->para) {
+        auto f = ori->F;
+        for (auto pas : para_pas) {
+          if (pas.first->fun.find(f) != pas.first->fun.end()) {
+            auto p = pas.second[index];
+            ori->fun.insert(p->fun.begin(), p->fun.end());
+          }
+        }
+      }
+
+      for (auto caller : ori->ret) {
+        for (auto f : caller->fun) {
+          auto l = function_ret.find(f);
+          if (l != function_ret.end()) {
+            auto ret = l->second;
+            ori->fun.insert(ret->fun.begin(), ret->fun.end());
+          }
+        }
+      }
+      // print the function name
+      // TODO debug has changed !
+      return size != ori->fun.size();
+    }
+
+    return false;
+  }
+
+  void expand_the_graph() {
+    // for all origin
+    // origin 中间添加何种节点 ? 形成edge 的 !
+    // 如果该inv 中间没有参数为函数指针的，也收集一下，表示
+    while (true) {
+      bool change = false;
+      for (auto o : nodes) {
+        if (dig_me(o)) {
+          change = true;
+        }
+      }
+
+      if (!change) {
+        break;
+      }
+    }
+  }
 
   /**
    * 1. 首次访问函数建立的内容
-   * 2. 
+   * 2.
    */
-  void set_up_function_bridge(Function *func) {
-    
-  }
-  
+  void set_up_function_bridge(Function *func) {}
 
   /**
    * 参数:局部变量 alloc 的内容
@@ -269,9 +332,10 @@ struct FuncPtrPass : public FunctionPass {
         // errs() << "inst -----------> " << *inst << "\n";
 
         // TODO 如何理解instruction 是一个value ?
-        auto o = inst->getOperandList();
-        inst->getNumUses();
-        errs() << "opNo : " << o->getOperandNo() << "\t";
+        // auto o = inst->getOperandList();
+        // inst->getNumUses();
+        // errs() << "opNo : " << o->getOperandNo() << "\t";
+
         print_use_list(&*inst);
 
         continue;

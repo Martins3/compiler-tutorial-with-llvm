@@ -17,8 +17,10 @@ FP gg(){
 
 int foo(int a,int b,int(* a_fptr)(int, int))
 {
-    
     FP fp = gg();
+    a_fptr = fp;
+
+    a_fptr(a, b);
     return fp(a,b);
 }
 

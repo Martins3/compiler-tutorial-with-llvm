@@ -98,8 +98,7 @@ struct FuncPtrPass : public FunctionPass {
   // Origin 是一个节点!
   struct Origin {
     Function *F; // 当前Origin 对对应的函数
-    Value *V;
-    Origin(Function *f, Value *v) : F(f), V(v){};
+    Origin(Function *f) : F(f){};
 
     std::set<Function *> fun; // 直接函数赋值传递过来的
 
@@ -124,21 +123,92 @@ struct FuncPtrPass : public FunctionPass {
   // 所有的节点 : 返回值 函数 和
   std::set<Origin *> nodes;
 
-  // 向上遍历，检查store 指令即可 
-  void make_Origin(Value * v){
+  // call/invoke 指令 和 其对应的Origin
+  std::map<Instruction *, Origin *> result;
 
+  // 向上遍历，检查store 指令即可
+  // 添加一个block 参数即可!
+  StoreInst *this_block_store_me(BasicBlock *b, Value *v) {
+    for (auto inst = b->rbegin(); inst != b->rend(); inst++) {
+      if (auto store = dyn_cast<StoreInst>(&*inst)) {
+        // Value * 	getValueOperand ()
+        // Value * 	getPointerOperand ()
+
+        if (store->getPointerOperand() == v) {
+          // 直接返回ValueOperand
+          return store;
+        }
+      }
+    }
+    return nullptr;
   }
 
-  Value * get_alloc(Value * v){
-
-    return NULL;
+  void make_Origin(Origin *ori, BasicBlock *b, Value *v) {
+    errs() << "debug make origin\n";
+    assert(b != nullptr && v != nullptr);
   }
 
-  void collect_nodes() {
+  // 需要假设 : 对于pointer永远都是没有assign的操作，而且其中
+  Value *get_alloc(BasicBlock *b, Value *v) {
+    for (auto inst = b->rbegin(); inst != b->rend(); inst++) {
+      if (auto load = dyn_cast<LoadInst>(&*inst)) {
+        // errs() << *(load->getOperand(0)) << "\n";
+        // errs() << *(load->getPointerOperand()) << "\n";
+        assert(load->isSimple());
+        assert(load->getNumUses() == 1);
+
+        if (load == v) {
+          return load->getPointerOperand();
+        }
+      }
+    }
+    // 似乎如果访问全局变量似乎就是立刻使用
+    return v;
+  }
+
+  void collect_nodes(Instruction *inst) {
     // graph 的连接 : invoke 指令 和 ret 指令
-    // 1. 遍历到invoke (2) / ret (1) 收集 
-    // 2. 图节点中间的信息如何传播
-    // 3. 停止的方法是什么.
+
+    // is call invoke or ret
+    if (isa<CallInst>(&(*inst)) || isa<InvokeInst>(&(*inst))) {
+      CallInst *t = cast<CallInst>(&(*inst));
+      // 无论call 是否使用函数指针，都需要制作其Origin，除非参数中间没有fptr
+      // 还是对于其mkptr 因为第二次扫描的过程中间，通过遍历nodes 查找，更加简单
+
+      auto f = t->getCalledOperand();
+
+      // TODO 计算caller 和 para 的Origin
+      for (int i = 0; i < t->getNumArgOperands(); ++i) {
+        auto arg = t->getArgOperand(i);
+      }
+
+      // TODO 维护para_pas
+      // TODO 维护result
+    } else if (isa<ReturnInst>(&*inst)) {
+      ReturnInst *t = cast<ReturnInst>(&*inst);
+
+      auto retType = t->getType();
+      // TODO 仅仅处理函数指针的内容!
+      errs() << "return " << retType->isFunctionTy();
+      // errs() << t->getReturnValue()->getType()->isFunctionTy();
+      errs() << retType->isPointerTy();
+      errs() << retType->isIntegerTy();
+      errs() << *retType;
+      errs() << "\n";
+
+      Value *alloc = get_alloc(t->getParent(), t->getReturnValue());
+
+      Origin *ori = new Origin(inst->getParent()->getParent());
+
+      if (isa<Function>(alloc)) {
+        Function *f = cast<Function>(alloc);
+        ori->fun.insert(f);
+      } else {
+        make_Origin(ori, t->getParent(), alloc);
+      }
+      nodes.insert(ori);
+      // TODO 维护 function_ret
+    }
   }
 
   // 定义多个pass
@@ -146,7 +216,7 @@ struct FuncPtrPass : public FunctionPass {
 
   // 不要递归啊!
   bool dig_me(Origin *ori) {
-    
+
     auto size = ori->fun.size();
     if (ori->pending()) {
       for (auto index : ori->para) {
@@ -194,25 +264,6 @@ struct FuncPtrPass : public FunctionPass {
     }
   }
 
-  /**
-   * 1. 首次访问函数建立的内容
-   * 2.
-   */
-  void set_up_function_bridge(Function *func) {}
-
-  /**
-   * 参数:局部变量 alloc 的内容
-   *
-   * ret :
-   * 1. 函数参数的编号
-   * 2. Function *
-   * 3. 那几个函数的返回值!
-   *
-   */
-  void possible_value(Value *loc) {}
-
-  // while 到没有什么可做的就可以了!
-
   // 根据基本块向上搜索
   // 1. 来源: 全局函数，参数，函数返回值
   // 2. 函数参数 : 谁调用过函数，并且向函数参数的传递数值是什么 ?
@@ -229,6 +280,7 @@ struct FuncPtrPass : public FunctionPass {
     }
   }
 
+  // should be deprecated !
   void trace(Instruction *inst) {
     errs() << "trace begin :------>\n";
     // 如果是call 指令，只用知道第一条操作数
@@ -300,11 +352,11 @@ struct FuncPtrPass : public FunctionPass {
     // 函数指针递归处理
     // errs() << "digraph " + F.getName() + "{\n";
     // errs() << "\n";
-    for (auto a = F.arg_begin(); a != F.arg_end(); a++) {
-      errs() << a->getArgNo() << "\t";
-      errs() << a->getValueID() << "\t";
-      errs() << *a << "\n";
-    }
+    // for (auto a = F.arg_begin(); a != F.arg_end(); a++) {
+    // errs() << a->getArgNo() << "\t";
+    // errs() << a->getValueID() << "\t";
+    // errs() << *a << "\n";
+    // }
     for (auto block = F.getBasicBlockList().begin();
          block != F.getBasicBlockList().end(); block++) {
 
@@ -336,7 +388,8 @@ struct FuncPtrPass : public FunctionPass {
         // inst->getNumUses();
         // errs() << "opNo : " << o->getOperandNo() << "\t";
 
-        print_use_list(&*inst);
+        collect_nodes(&*inst);
+        // print_use_list(&*inst);
 
         continue;
         TODO();

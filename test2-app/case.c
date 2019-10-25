@@ -1,7 +1,13 @@
 #include <stdlib.h>
 
 int plus(int a, int b) {
-   return a+b;
+  int x = a;
+x = a;
+x = a;
+x = a;
+x = a;
+
+   return a;
 }
 //
 // int minus(int a,int b)

@@ -90,12 +90,16 @@ https://stackoverflow.com/questions/30195204/how-to-parse-llvm-ir-line-by-line
 https://stackoverflow.com/questions/54193082/how-to-get-the-original-source-and-line-number-in-llvm
 https://stackoverflow.com/questions/18305965/get-c-c-source-code-data-from-llvm-ir
 
+https://llvm.org/docs/FAQ.html
+
 
 http://llvm.org/docs/ProgrammersManual.html
 1. http://llvm.org/docs/ProgrammersManual.html#advanced-topics
 2. http://llvm.org/docs/ProgrammersManual.html#the-core-llvm-class-hierarchy-reference
 3. http://llvm.org/docs/ProgrammersManual.html#iterating-over-def-use-use-def-chains
 > 提供了插入新的指令API
+
+4. CallInst 似乎也提供了大量API来create 新的指令。
 
 
 

@@ -1,13 +1,12 @@
 #include <stdlib.h>
 
-int *m(int *x) { return x; }
 
-int plus(int a, int b) {
-  int x = a;
-  int y = x;
-  int z = y;
-  int gg = a;
-
+typedef int (*FP)(int, int);
+FP plus_pointer(FP a, FP b) {
+  FP x = b;
+  FP y = x;
+  FP z = y;
+  FP gg = z;
   return gg;
 }
 //
@@ -16,21 +15,31 @@ int plus(int a, int b) {
 // return a-b;
 // }
 
-typedef int (*FP)(int, int);
+
+int plus(int a,int b)
+{
+return a+b;
+}
+
 
 FP gg() { return plus; }
+
+typedef FP (*FPP)();
 
 int foo(int a, int b, int (*a_fptr)(int, int)) {
   FP fp;
   // a_fptr = fp;
   int x = 1;
   if (x) {
-    fp = NULL;
+    fp = (FP)NULL;
   } else {
+    // FPP sss = gg;
+    // fp = sss();
+    
+    // fp = plus;
     fp = gg();
   }
 
-  fp(a, b);
   return fp(a, b);
 }
 

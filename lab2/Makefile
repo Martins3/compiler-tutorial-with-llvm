@@ -13,7 +13,7 @@ TEST_CASE = ${TEST_SRC:.c=.bc}
 RUN_DEP=${TEST_CASE} a.out
 
 a.out:LLVMAssignment.cpp
-	clang++ LLVMAssignment.cpp $(FLAGS)
+	clang++ -g LLVMAssignment.cpp $(FLAGS)
 	@# clang++ LLVMAssignment.cpp $(LIBS_PATH)
 
 #----------------------------

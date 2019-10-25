@@ -123,17 +123,33 @@ struct FuncPtrPass : public FunctionPass {
   //
   // 向上遍历，检查store 指令即可
   // TODO 从当前inst 之后才可以! 是吗?
-  Value *this_block_store_me(BasicBlock *b, Value *v) {
+  Value *this_block_store_me(BasicBlock *b, LoadInst *v) {
+
+    auto contain_me = false;
     for (auto inst = b->rbegin(); inst != b->rend(); inst++) {
+      if (v == &*inst) {
+        contain_me = true;
+        break;
+      }
+    }
+
+    for (auto inst = b->rbegin(); inst != b->rend(); inst++) {
+      if (contain_me && v != &*inst) {
+        continue;
+      } else {
+        contain_me = false;
+      }
+
       if (auto store = dyn_cast<StoreInst>(&*inst)) {
         // Value * 	getValueOperand ()
         // Value * 	getPointerOperand ()
-        if (store->getPointerOperand() == v) {
-          // 直接返回ValueOperand
+        if (store->getPointerOperand() == v->getPointerOperand()) {
+          // 直接返回ValueOperand，是一个什么样子都可以的数值!
           return store->getValueOperand();
         }
       }
     }
+
     return nullptr;
   }
 
@@ -149,65 +165,65 @@ struct FuncPtrPass : public FunctionPass {
   //
   // 1. 如果使用数值不是terminator 的值，那么该值一定在本block load 过.
   // 其他的block 无论是否赋值，都是没有办法处理的。 2.
-  Value *get_alloc(BasicBlock *b, Value *v) {
+  LoadInst *get_alloc(Origin *ori, Value *v) {
+    if (auto load = dyn_cast<LoadInst>(v)) {
+      return load;
+    }
     if (auto f = dyn_cast<Function>(v)) {
-      // TODO
+      ori->fun.insert(f);
     } else if (auto arg = dyn_cast<Argument>(v)) {
-      // TODO
+      ori->para.insert(arg->getArgNo());
     } else if (auto call = dyn_cast<CallInst>(v)) {
-      // 查找V的源头!
-      // TODO 会不会继续存在alloc 的事情?
-      // TODO 似乎没有处理函数返回值的情况啊!
-    }else if (auto load = dyn_cast<LoadInst>(v)){
-      return load->getPointerOperand();
-    }else{
-      errs() << "Holy shit !\n";
-      exit(0);
-    }
-
-    for (auto inst = b->rbegin(); inst != b->rend(); inst++) {
-      if (auto load = dyn_cast<LoadInst>(&*inst)) {
-        // errs() << *(load->getOperand(0)) << "\n";
-        // errs() << *(load->getPointerOperand()) << "\n";
-        assert(load->isSimple());
-        assert(load->getNumUses() == 1);
-
-        if (load == v) {
-        }
+      // call 是函数的返回值!
+      auto called = call->getCalledOperand();
+      auto call_ori = new Origin(call->getParent()->getParent());
+      if(auto load = get_alloc(call_ori, called)){
+        trace_store(call_ori, load->getParent(), load);
       }
+      ori->ret.insert(ori);
+    } else if (isa<ConstantPointerNull>(v)) {
+      // TODO 并没有办法处理(FP)12 之类的情况!
+      // TODO bitcast 无力处理!
+      errs() << "maybe call nullptr";
+    } else {
+      errs() << *v << "\t";
+      errs() << "Holy shit\n";
+      assert(false);
     }
-    // 1. 全局变量似乎就是立刻使用.
-    // 2. 函数参数. ?
-    // 3. callRet 立刻靠近的
-    //
-    // TODO 重做接口，在外部检查，因为根本没有寄存器的赋值，只有load store
-    // 函数指针导致只有 load store 或者函数返回值!
+
     return nullptr;
   }
 
   /**
-   * @ori return value
-   * @block
+   * 检查在该loadInst 之前一共含有的store 的可能!
+   * strace store for the loadInst
    */
-  void make_Origin(Origin *ori, BasicBlock *block, Value *v) {
+  void trace_store(Origin *ori, BasicBlock *block, LoadInst *v) {
     // get load instruction
     // 如果是load 指令，得到其store指令
-    //
     // 从当前的load 指令向上store 指令，然后对于store 进行make_Origin 操作
-    
     assert(block != nullptr && v != nullptr);
-    if(get_alloc(nullptr, v) != nullptr){
-      
-    }
 
     if (auto sv = this_block_store_me(block, v)) {
-      // get_alloc 然后使用数值
+      if (auto load = get_alloc(ori, sv)) {
+        // auto load = dyn_cast<LoadInst>(v);
+        assert(load != nullptr);
+        trace_store(ori, block, load);
+      }
     } else {
-      // 继续向上
       for (auto it = pred_begin(&*block), et = pred_end(&*block); it != et;
            ++it) {
-        make_Origin(ori, *it, v);
+        trace_store(ori, *it, v);
       }
+    }
+  }
+
+  // 外部接口
+  void make_Origin(Origin *ori, BasicBlock *block, Value *v) {
+    assert(block != nullptr && v != nullptr);
+    if (auto load = get_alloc(ori, v)) {
+      assert(load != nullptr);
+      trace_store(ori, block, load);
     }
   }
 
@@ -220,17 +236,10 @@ struct FuncPtrPass : public FunctionPass {
       CallInst *t = cast<CallInst>(&(*inst));
       // 无论call 是否使用函数指针，都需要制作其Origin，除非参数中间没有fptr
       // 还是对于其mkptr 因为第二次扫描的过程中间，通过遍历nodes 查找，更加简单
-      return;
 
       Origin *called_ori = new Origin(F);
       auto call = t->getCalledOperand();
-
-      Value *alloc = get_alloc(t->getParent(), call);
-      if (auto called = dyn_cast<Function>(alloc)) {
-        called_ori->fun.insert(called);
-      } else {
-        make_Origin(called_ori, t->getParent(), alloc);
-      }
+      make_Origin(called_ori, t->getParent(), call);
       result[t] = called_ori;
 
       std::vector<Origin *> para_vec;
@@ -242,13 +251,7 @@ struct FuncPtrPass : public FunctionPass {
         if (ty->isPointerTy()) {
           if (ty->getPointerElementType()->isFunctionTy()) {
             ori = new Origin(F);
-            Value *alloc = get_alloc(t->getParent(), arg);
-            if (auto f = dyn_cast<Function>(alloc)) {
-              ori->fun.insert(f);
-            } else {
-              make_Origin(ori, t->getParent(), alloc);
-            }
-
+            make_Origin(ori, t->getParent(), arg);
             continue;
           }
         }
@@ -262,15 +265,8 @@ struct FuncPtrPass : public FunctionPass {
       if (retType->isPointerTy()) {
         if (retType->getPointerElementType()->isFunctionTy()) {
           Origin *ori = new Origin(F);
+          make_Origin(ori, t->getParent(), t->getReturnValue());
 
-
-          return;
-          Value *alloc = get_alloc(t->getParent(), t->getReturnValue());
-          if (auto f = dyn_cast<Function>(alloc)) {
-            ori->fun.insert(f);
-          } else {
-            make_Origin(ori, t->getParent(), alloc);
-          }
           nodes.insert(ori);
           function_ret[F] = ori;
         }
@@ -415,7 +411,7 @@ struct FuncPtrPass : public FunctionPass {
     errs().write_escaped(F.getName());
     errs() << " : ";
 
-    // errs() << F << "\n";
+    errs() << F << "\n";
     // 函数指针递归处理
     // errs() << "digraph " + F.getName() + "{\n";
     // errs() << "\n";
@@ -426,9 +422,6 @@ struct FuncPtrPass : public FunctionPass {
     // }
     for (auto block = F.getBasicBlockList().begin();
          block != F.getBasicBlockList().end(); block++) {
-      errs() << "*******\n";
-      errs() << *block;
-
       // 赋值节点
       // 1. 对于函数指针，可以非常简单的找到最开始的变量的内容
       // 2. 分析的基础是basic block ! 只要是函数指针，最后使用一定是从stack

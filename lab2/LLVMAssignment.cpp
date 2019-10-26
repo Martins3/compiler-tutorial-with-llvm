@@ -48,6 +48,26 @@ struct Origin {
   Function *F; // 当前Origin 对对应的函数
   Origin(Function *f) : F(f){};
 
+  void print() {
+    errs() << "debug origin ************* \n";
+    errs() << "current function : " << F->getName() << "\n";
+
+    for (auto f : fun) {
+      errs() << f->getName() << "\t";
+    }
+
+    for (auto f : para) {
+      errs() << f << "\t";
+    }
+
+    // TODO 可能出现本来含有递归!
+    for (auto o : ret) {
+      o->print();
+    }
+
+    errs() << "\ndebug origin end *********\n";
+  }
+
   std::set<Function *> fun; // 直接函数赋值传递过来的
 
   // Origin 需要和具体函数挂钩!
@@ -121,11 +141,11 @@ LoadInst *get_alloc(Origin *ori, Value *v) {
     if (auto load = get_alloc(call_ori, called)) {
       trace_store(call_ori, load->getParent(), load);
     }
-    ori->ret.insert(ori);
+    ori->ret.insert(call_ori);
   } else if (isa<ConstantPointerNull>(v)) {
     // TODO 并没有办法处理(FP)12 之类的情况!
     // TODO bitcast 无力处理!
-    errs() << "maybe call nullptr";
+    errs() << "maybe call nullptr\n";
   } else {
     errs() << *v << "\t";
     errs() << "Holy shit\n";
@@ -182,6 +202,7 @@ void collect_nodes(Instruction *inst) {
     auto call = t->getCalledOperand();
     make_Origin(called_ori, t->getParent(), call);
     result[t] = called_ori;
+    ori_nodes.insert(called_ori);
 
     std::vector<Origin *> para_vec;
     for (int i = 0; i < t->getNumArgOperands(); ++i) {
@@ -193,11 +214,13 @@ void collect_nodes(Instruction *inst) {
         if (ty->getPointerElementType()->isFunctionTy()) {
           ori = new Origin(F);
           make_Origin(ori, t->getParent(), arg);
-          continue;
+          ori_nodes.insert(ori);
         }
       }
+      para_vec.push_back(ori);
     }
     para_pas[called_ori] = para_vec;
+
 
   } else if (isa<ReturnInst>(&*inst)) {
     ReturnInst *t = cast<ReturnInst>(&*inst);
@@ -207,7 +230,6 @@ void collect_nodes(Instruction *inst) {
       if (retType->getPointerElementType()->isFunctionTy()) {
         Origin *ori = new Origin(F);
         make_Origin(ori, t->getParent(), t->getReturnValue());
-
         ori_nodes.insert(ori);
         function_ret[F] = ori;
       }
@@ -227,6 +249,11 @@ bool dig_me(Origin *ori) {
       auto f = ori->F;
       for (auto pas : para_pas) {
         if (pas.first->fun.find(f) != pas.first->fun.end()) {
+          if (index > pas.second.size()) {
+            // 插入函数，
+            // errs() << *f << "\n";
+            assert(false);
+          }
           auto p = pas.second[index];
           ori->fun.insert(p->fun.begin(), p->fun.end());
         }
@@ -251,9 +278,6 @@ bool dig_me(Origin *ori) {
 }
 
 void expand_the_graph() {
-  // for all origin
-  // origin 中间添加何种节点 ? 形成edge 的 !
-  // 如果该inv 中间没有参数为函数指针的，也收集一下，表示
   while (true) {
     bool change = false;
     for (auto o : ori_nodes) {
@@ -274,26 +298,42 @@ struct FuncPtrPass : public FunctionPass {
 
   FuncPtrPass() : FunctionPass(ID) {}
   virtual bool runOnFunction(Function &F) override {
-    // 似乎递归就是被划分为四个层次的 !
-    LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-    errs().write_escaped(F.getName());
-    errs() << " : ";
-
     errs() << F << "\n";
     for (auto block = F.getBasicBlockList().begin();
          block != F.getBasicBlockList().end(); block++) {
-
       for (auto inst = block->begin(); inst != block->end(); inst++) {
-        // 对于每一个instruction 查询功能
-        // errs() << "inst -----------> " << *inst << "\n";
-
-        // TODO 如何理解instruction 是一个value ?
-        // auto o = inst->getOperandList();
-        // inst->getNumUses();
-        // errs() << "opNo : " << o->getOperandNo() << "\t";
-
         collect_nodes(&*inst);
-        // print_use_list(&*inst);
+      }
+    }
+    return false;
+  }
+
+  virtual bool doFinalization(Module &M) override {
+    expand_the_graph();
+    for (auto F = M.begin(); F != M.end(); F++) {
+      for (auto B = F->begin(); B != F->end(); B++) {
+        for (auto inst = B->begin(); inst != B->end(); inst++) {
+          if (isa<CallInst>(&(*inst)) || isa<InvokeInst>(&(*inst))) {
+            CallInst *t = cast<CallInst>(&(*inst));
+            Origin *ori = result[t];
+            // pending 其实意义
+            if (false && ori->pending()) {
+              errs() << *inst << "\n";
+              ori->print();
+
+              errs() << "function ret : \n";
+              for (auto ret : function_ret) {
+                errs() << *ret.first << "\n";
+                ret.second->print();
+              }
+              assert(false);
+            }
+            for (auto f : ori->fun) {
+              errs() << f->getName() << "\t";
+            }
+            errs() << "\n";
+          }
+        }
       }
     }
     return false;
@@ -303,18 +343,6 @@ struct FuncPtrPass : public FunctionPass {
 char FuncPtrPass::ID = 0;
 static RegisterPass<FuncPtrPass> X("funcptrpass",
                                    "Print function call instruction");
-
-struct CFG : public FunctionPass {
-  static char ID; // Pass identification, replacement for typeid
-  CFG() : FunctionPass(ID) { errs() << "CFG"; }
-
-  bool runOnFunction(Function &F) override { 
-    return false; 
-  }
-};
-
-char CFG::ID = 0;
-static RegisterPass<CFG> C("CFG", "Gen CFG", true, true);
 
 static cl::opt<std::string>
     InputFilename(cl::Positional, cl::desc("<filename>.bc"), cl::init(""));
@@ -340,9 +368,6 @@ int main(int argc, char **argv) {
   Passes.add(llvm::createPromoteMemoryToRegisterPass());
 
   /// Your pass to print Function and Call Instructions
-  // Passes.add(new LoopInfoWrapperPass());
   Passes.add(new FuncPtrPass());
-  // Passes.add(new BBinLoops());
-  Passes.add(new CFG());
   Passes.run(*M.get());
 }

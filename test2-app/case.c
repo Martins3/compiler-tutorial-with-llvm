@@ -9,20 +9,22 @@ FP plus_pointer(FP a, FP b) {
   FP gg = z;
   return gg;
 }
-//
-// int minus(int a,int b)
-// {
-// return a-b;
-// }
+
+int minus(int a,int b)
+{
+return a-b;
+}
 
 
 int plus(int a,int b)
 {
+  minus(a, b);
 return a+b;
 }
 
 
 FP gg() { return plus; }
+FP ggg() { return minus; }
 
 typedef FP (*FPP)();
 
@@ -31,7 +33,7 @@ int foo(int a, int b, int (*a_fptr)(int, int)) {
   // a_fptr = fp;
   int x = 1;
   if (x) {
-    fp = (FP)NULL;
+    fp = ggg();
   } else {
     // FPP sss = gg;
     // fp = sss();
@@ -39,6 +41,9 @@ int foo(int a, int b, int (*a_fptr)(int, int)) {
     // fp = plus;
     fp = gg();
   }
+
+  FP mm = plus_pointer(minus, plus);
+  mm(a, b);
 
   return fp(a, b);
 }

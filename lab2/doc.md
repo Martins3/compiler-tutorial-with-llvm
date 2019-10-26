@@ -105,7 +105,6 @@ http://llvm.org/docs/ProgrammersManual.html
 
 
 
-
 # TODO
 1. bc 格式  中间表示 ?
 2. 获取函数名称 行号 ?
@@ -170,6 +169,7 @@ callGraph 似乎只是普通的ref 内容，
 # 分析一波函数
 1. 处理掉直接调用 和 收集函数指针变量
 2. 对于过程变量进行传播。
+
 
 
 # todo
@@ -279,3 +279,5 @@ void a(P p){
           }
 ```
 
+# TODO
+1. 使用多个pass,肯定有更好方法!

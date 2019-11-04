@@ -12,19 +12,23 @@ TEST_SRC = $(wildcard ../test2/*.c ../test2-app/*.c)
 TEST_CASE = ${TEST_SRC:.c=.bc} 
 RUN_DEP=${TEST_CASE} a.out
 
+# DEBUG_ME=../test2-app/cfg.bc
+DEBUG_ME=../test2/test01.bc
+
 a.out:LLVMAssignment.cpp
 	clang++ -g LLVMAssignment.cpp $(FLAGS)
 	@# clang++ LLVMAssignment.cpp $(LIBS_PATH)
 
 #----------------------------
 run: ${RUN_DEP}
-	./a.out ../test2-app/case.bc
+	./a.out ${DEBUG_ME}
 
 debug: ${RUN_DEP}
 	gdb ./a.out -x gdbinit
 
 clean:
-	rm ../test2-app/case.bc
+	rm -f ${TEST_CASE}
+	rm -f a.out
 
 
 cp:
@@ -36,7 +40,7 @@ test: ${TEST_CASE}
 	@echo "refresh case"
 
 %.bc: %.c
-	clang -c -emit-llvm -O0 $< -o $@
+	clang -c -g -emit-llvm -O0 $< -o $@
 
 ra: ${RUN_DEP}
 	 @for test in ${TEST_CASE}; do \

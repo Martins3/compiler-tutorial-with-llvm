@@ -1,65 +1,42 @@
-#include <stdlib.h>
-
-
-typedef int (*FP)(int, int);
-FP plus_pointer(FP a, FP b) {
-  FP x = b;
-  FP y = x;
-  FP z = y;
-  FP gg = z;
-  return gg;
-}
-
-int minus(int a,int b)
-{
-return a-b;
-}
-
-
-int plus(int a,int b)
-{
-  minus(a, b);
-return a+b;
-}
-
-
-FP gg() { return plus; }
-FP ggg() { return minus; }
-
-typedef FP (*FPP)();
-
-int foo(int a, int b, int (*a_fptr)(int, int)) {
-  FP fp;
-  // a_fptr = fp;
-  int x = 1;
-  if (x) {
-    fp = ggg();
-  } else {
-    // FPP sss = gg;
-    // fp = sss();
-    
-    // fp = plus;
-    fp = gg();
-  }
-
-  FP mm = plus_pointer(minus, plus);
-  mm(a, b);
-
-  return fp(a, b);
-}
-
-// int moo(char x)
-// {
-// int (*af_ptr)(int ,int ,int(*)(int, int))=foo;
-// int (*pf_ptr)(int,int)=0;
-// if(x == '+'){
-// pf_ptr=plus;
-// af_ptr(1,2,pf_ptr);
-// pf_ptr=minus;
-// }
-// af_ptr(1,2,pf_ptr);
-// return 0;
-// }
-// 14 : plus, minus
-// 24 : foo
-// 27 : foo
+ #include <stdio.h>
+ 
+ int add(int a, int b) {
+    return a+b;
+ }
+ 
+ int sub(int a, int b) {
+    return a-b;
+ }
+ 
+ int foo(int a, int b, int (*a_fptr)(int, int)) {
+     return a_fptr(a, b);
+ }
+ 
+ 
+ int main() {
+     int (*a_fptr)(int, int) = add;
+     int (*s_fptr)(int, int) = sub;
+     int (*t_fptr)(int, int) = 0;
+ 
+     char x;
+     int op1, op2;
+     fprintf(stderr, "Please input num1 +/- num2 \n");
+ 
+     fscanf(stdin, "%d %c %d", &op1, &x, &op2);
+ 
+     if (x == '+') {
+        t_fptr = a_fptr;
+     }
+ 
+     if (x == '-') {
+        t_fptr = s_fptr;
+     }
+ 
+     if (t_fptr != NULL) {
+        unsigned result = foo(op1, op2, t_fptr);
+        fprintf (stderr, "Result is %d \n", result);
+     } else {
+        fprintf (stderr, "Unrecoganised operation %c", x);
+     }
+     return 0;
+ }

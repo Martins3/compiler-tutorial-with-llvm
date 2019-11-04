@@ -44,9 +44,26 @@ inline void TODO() {
 }
 
 // Origin 是一个节点!
-struct Origin {
+class Origin {
+public:
   Function *F; // 当前Origin 对对应的函数
-  Origin(Function *f) : F(f){};
+
+  // 来源来自于null 导致其必然不会参加edge 的构建
+  bool hasConstantPointerNull;
+
+  std::set<Function *> fun; // 直接函数赋值传递过来的
+
+  // Origin 需要和具体函数挂钩!
+  std::set<unsigned int> para; // 多个函数参数
+  // 需要进一步调用 : call指令给参数的trace !
+
+  std::set<Origin *> ret; // 多个函数的ret value !
+  // 表示为这些来源的返回值 !
+  // %3 = call plus
+  // %3 = call plus
+  bool pending() { return para.size() > 0 || ret.size() > 0; }
+
+  Origin(Function *f) : F(f), hasConstantPointerNull(false){};
 
   void print() {
     errs() << "debug origin ************* \n";
@@ -67,18 +84,6 @@ struct Origin {
 
     errs() << "\ndebug origin end *********\n";
   }
-
-  std::set<Function *> fun; // 直接函数赋值传递过来的
-
-  // Origin 需要和具体函数挂钩!
-  std::set<unsigned int> para; // 多个函数参数
-  // 需要进一步调用 : call指令给参数的trace !
-
-  std::set<Origin *> ret; // 多个函数的ret value !
-  // 表示为这些来源的返回值 !
-  // %3 = call plus
-  // %3 = call plus
-  bool pending() { return para.size() > 0 || ret.size() > 0; }
 };
 
 void trace_store(Origin *ori, BasicBlock *block, LoadInst *v);
@@ -142,11 +147,11 @@ LoadInst *get_alloc(Origin *ori, Value *v) {
       trace_store(call_ori, load->getParent(), load);
     }
     ori->ret.insert(call_ori);
-  } else if (isa<ConstantPointerNull>(v)) {
+  } else if (auto nu = dyn_cast<ConstantPointerNull>(v)) {
     // TODO 并没有办法处理(FP)12 之类的情况!
-    // TODO bitcast 无力处理!
-    errs() << "maybe call nullptr\n";
+    ori->hasConstantPointerNull = true;
   } else {
+    // TODO bitcast 无力处理!
     errs() << *v << "\t";
     errs() << "Holy shit\n";
     assert(false);
@@ -221,17 +226,17 @@ void collect_nodes(Instruction *inst) {
     }
     para_pas[called_ori] = para_vec;
 
-
   } else if (isa<ReturnInst>(&*inst)) {
     ReturnInst *t = cast<ReturnInst>(&*inst);
-
-    auto retType = t->getReturnValue()->getType();
-    if (retType->isPointerTy()) {
-      if (retType->getPointerElementType()->isFunctionTy()) {
-        Origin *ori = new Origin(F);
-        make_Origin(ori, t->getParent(), t->getReturnValue());
-        ori_nodes.insert(ori);
-        function_ret[F] = ori;
+    if (t->getReturnValue() != nullptr) {
+      auto retType = t->getReturnValue()->getType();
+      if (retType->isPointerTy()) {
+        if (retType->getPointerElementType()->isFunctionTy()) {
+          Origin *ori = new Origin(F);
+          make_Origin(ori, t->getParent(), t->getReturnValue());
+          ori_nodes.insert(ori);
+          function_ret[F] = ori;
+        }
       }
     }
   }
@@ -298,7 +303,7 @@ struct FuncPtrPass : public FunctionPass {
 
   FuncPtrPass() : FunctionPass(ID) {}
   virtual bool runOnFunction(Function &F) override {
-    errs() << F << "\n";
+    // errs() << F << "\n";
     for (auto block = F.getBasicBlockList().begin();
          block != F.getBasicBlockList().end(); block++) {
       for (auto inst = block->begin(); inst != block->end(); inst++) {
@@ -315,23 +320,28 @@ struct FuncPtrPass : public FunctionPass {
         for (auto inst = B->begin(); inst != B->end(); inst++) {
           if (isa<CallInst>(&(*inst)) || isa<InvokeInst>(&(*inst))) {
             CallInst *t = cast<CallInst>(&(*inst));
-            Origin *ori = result[t];
-            // pending 其实意义
-            if (false && ori->pending()) {
-              errs() << *inst << "\n";
-              ori->print();
 
-              errs() << "function ret : \n";
-              for (auto ret : function_ret) {
-                errs() << *ret.first << "\n";
-                ret.second->print();
+            // errs() << *(t) << "\n";
+            // errs() << *(t->getFunction()) << "\n";
+            // errs() << t->getFunction()->getName() << " gg\n";
+            if (auto f = t->getCalledFunction()) {
+              if (f->getName() == "llvm.dbg.declare") {
+                continue;
               }
-              assert(false);
             }
-            for (auto f : ori->fun) {
-              errs() << f->getName() << "\t";
+
+            Origin *ori = result[t];
+            auto d = t->getDebugLoc();
+            if (!d.isImplicitCode()) {
+              errs() << d.getLine() << " ";
+              for (auto f : ori->fun) {
+                 errs() << f->getName() << " ";
+              }
+              if(ori->hasConstantPointerNull){
+                errs() << "NULL";
+              }
+              errs() << "\n";
             }
-            errs() << "\n";
           }
         }
       }

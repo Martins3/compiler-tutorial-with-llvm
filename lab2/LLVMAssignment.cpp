@@ -303,8 +303,9 @@ struct FuncPtrPass : public FunctionPass {
 
   FuncPtrPass() : FunctionPass(ID) {}
   virtual bool runOnFunction(Function &F) override {
-    // errs() << F << "\n";
+    errs() << F << "\n";
     for (auto block = F.getBasicBlockList().begin();
+
          block != F.getBasicBlockList().end(); block++) {
       for (auto inst = block->begin(); inst != block->end(); inst++) {
         collect_nodes(&*inst);
@@ -320,10 +321,7 @@ struct FuncPtrPass : public FunctionPass {
         for (auto inst = B->begin(); inst != B->end(); inst++) {
           if (isa<CallInst>(&(*inst)) || isa<InvokeInst>(&(*inst))) {
             CallInst *t = cast<CallInst>(&(*inst));
-
-            // errs() << *(t) << "\n";
-            // errs() << *(t->getFunction()) << "\n";
-            // errs() << t->getFunction()->getName() << " gg\n";
+            
             if (auto f = t->getCalledFunction()) {
               if (f->getName() == "llvm.dbg.declare") {
                 continue;
@@ -335,9 +333,9 @@ struct FuncPtrPass : public FunctionPass {
             if (!d.isImplicitCode()) {
               errs() << d.getLine() << " ";
               for (auto f : ori->fun) {
-                 errs() << f->getName() << " ";
+                errs() << f->getName() << " ";
               }
-              if(ori->hasConstantPointerNull){
+              if (ori->hasConstantPointerNull) {
                 errs() << "NULL";
               }
               errs() << "\n";

@@ -2,6 +2,14 @@
 https://www.inf.ed.ac.uk/teaching/courses/ct/17-18/slides/llvm-2-writing_pass.pdf
 http://llvm.org/docs/WritingAnLLVMPass.html
 
+# 处理forloop
+1. 将block 组合成为所有的可能的情况，形成路径
+2. forloop 如何处理
+3. forloop 中间含有各种if while 和 forloop
+4. forloop 仅仅假设分析一次即可 !?
+
+
+
 # goal
 作业2 （20分）
 1.  目的： 熟悉LLVM中间表示，use-def链

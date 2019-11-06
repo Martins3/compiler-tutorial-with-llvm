@@ -12,8 +12,9 @@ TEST_SRC = $(wildcard ../test2/*.c ../test2-app/*.c)
 TEST_CASE = ${TEST_SRC:.c=.bc} 
 RUN_DEP=${TEST_CASE} a.out
 
+DEBUG_ME=../test2-app/case.bc
 # DEBUG_ME=../test2-app/cfg.bc
-DEBUG_ME=../test2/test01.bc
+# DEBUG_ME=../test2/test01.bc
 
 a.out:LLVMAssignment.cpp
 	clang++ -g LLVMAssignment.cpp $(FLAGS)
@@ -46,4 +47,5 @@ ra: ${RUN_DEP}
 	 @for test in ${TEST_CASE}; do \
         echo $$test ; \
 				./a.out $$test;\
+				echo "";\
    done

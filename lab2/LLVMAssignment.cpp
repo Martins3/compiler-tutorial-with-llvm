@@ -251,6 +251,12 @@ void collect_nodes(Instruction *inst) {
   // is call invoke or ret
   if (isa<CallInst>(&(*inst)) || isa<InvokeInst>(&(*inst))) {
     CallInst *t = cast<CallInst>(&(*inst));
+    if (auto f = t->getCalledFunction()) {
+      if (f->getName() == "llvm.dbg.declare") {
+        return;
+      }
+    }
+
     // 无论call 是否使用函数指针，都需要制作其Origin，除非参数中间没有fptr
     // 还是对于其mkptr 因为第二次扫描的过程中间，通过遍历nodes 查找，更加简单
 
@@ -365,9 +371,9 @@ void get_origin_from_permutaion(const std::vector<BasicBlock *> &vec) {
     auto ori = std::get<1>(v);
     auto block = std::get<2>(v);
 
+    errs() << "----------------\n";
     errs() << *value << "\n";
-    // TODO debug me
-
+    errs() << "----------------\n";
 
     for (auto b : vec) {
       if (b == block) {
@@ -375,7 +381,6 @@ void get_origin_from_permutaion(const std::vector<BasicBlock *> &vec) {
           assert(load != nullptr);
           trace_store(ori, block, load, vec);
         }
-        return;
       }
     }
   }
@@ -386,11 +391,11 @@ void permutate_blocks(std::vector<BasicBlock *> &vec, BasicBlock *block) {
   auto it = succ_begin(&*block);
   auto et = succ_end(&*block);
   if (it == et) {
-    /* errs() << "^^^^^^^^^^^^^^^^^^^\n"; */
-    /* for(auto b : vec){ */
-    /*   errs() << "------------------\n"; */
-    /*   errs() << *b << "\n"; */
-    /* } */
+    errs() << "######## Find one route ###########\n";
+    for(auto b : vec){
+      errs() << *b << "\n";
+    }
+    errs() << "#################\n";
     get_origin_from_permutaion(vec);
   } else {
     for (; it != et; ++it) {
@@ -475,6 +480,8 @@ struct FuncPtrPass : public FunctionPass {
     /* errs() << F << "\n"; */
     for (auto block = F.getBasicBlockList().begin();
          block != F.getBasicBlockList().end(); block++) {
+      errs() << *block << "\n";
+      errs() << "child number : " << get_succ_num(&*block);
       for (auto inst = block->begin(); inst != block->end(); inst++) {
         // llvm-9 seems doesn't generate phi and select
         if (isa<PHINode>(inst)) {
@@ -485,16 +492,23 @@ struct FuncPtrPass : public FunctionPass {
       }
     }
 #ifdef PERMU_BLOCK
+    errs() << "---------All the value we collec-----\n";
+    for (auto v : to_trace_origin) {
+      errs() << *(std::get<0>(v)) << "\n";
+    }
+    errs() << "---------All the value we collec-----\n";
+
     std::vector<BasicBlock *> vec;
     auto block = F.getBasicBlockList().begin();
     permutate_blocks(vec, &*block);
     if (vec.size() != 0) {
-      for(auto b : vec){
+      for (auto b : vec) {
         errs() << "----------------------\n";
         errs() << *b << "\n";
       }
       assert(false);
     }
+    to_trace_origin.clear();
 #endif
     return false;
   }
@@ -516,14 +530,17 @@ struct FuncPtrPass : public FunctionPass {
             auto d = t->getDebugLoc();
             if (!d.isImplicitCode()) {
               errs() << d.getLine() << " ";
-              for (auto f : ori->fun) {
-                errs() << f->getName() << " ";
-              }
-              if (ori->hasConstantPointerNull) {
-                errs() << "NULL";
-              }
-              errs() << "\n";
+            } else {
+              errs() << "-g"
+                     << " ";
             }
+            for (auto f : ori->fun) {
+              errs() << f->getName() << " ";
+            }
+            if (ori->hasConstantPointerNull) {
+              errs() << "NULL";
+            }
+            errs() << "\n";
           }
         }
       }

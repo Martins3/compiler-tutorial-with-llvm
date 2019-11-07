@@ -42,8 +42,8 @@ test: ${TEST_CASE}
 
 # https://stackoverflow.com/questions/10475040/gcc-g-vs-g3-gdb-flag-what-is-the-difference
 %.bc: %.c
-	clang -c -emit-llvm -O0 -g3 $< -o $@
-	# clang -c -emit-llvm -O0 $< -o $@
+	# clang -c -emit-llvm -O0 -g3 $< -o $@
+	clang -c -emit-llvm -O0 $< -o $@
 
 ra: ${RUN_DEP}
 	 @for test in ${TEST_CASE}; do \

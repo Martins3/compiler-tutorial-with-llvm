@@ -38,6 +38,8 @@
 
 using namespace llvm;
 
+#define PERMU_BLOCK 1
+
 inline void TODO() {
   fprintf(stderr, "%s\n", "todo !");
   assert(false);
@@ -86,8 +88,6 @@ public:
   }
 };
 
-void trace_store(Origin *ori, BasicBlock *block, LoadInst *v);
-
 // 由函数定义形成的连接关系
 std::map<Function *, Origin *> function_ret;
 
@@ -101,8 +101,15 @@ std::set<Origin *> ori_nodes;
 // call/invoke 指令 和 其对应的Origin
 std::map<Instruction *, Origin *> result;
 
-Value *this_block_store_me(BasicBlock *b, LoadInst *v) {
+#ifdef PERMU_BLOCK
+std::vector<std::tuple<Value *, Origin *, BasicBlock *>> to_trace_origin;
+void trace_store(Origin *ori, BasicBlock *block, LoadInst *v,
+                 const std::vector<BasicBlock *> &vec);
+#else
+void trace_store(Origin *ori, BasicBlock *block, LoadInst *v);
+#endif
 
+Value *this_block_store_me(BasicBlock *b, LoadInst *v) {
   auto contain_me = false;
   for (auto inst = b->rbegin(); inst != b->rend(); inst++) {
     if (v == &*inst) {
@@ -131,7 +138,12 @@ Value *this_block_store_me(BasicBlock *b, LoadInst *v) {
   return nullptr;
 }
 
+#ifdef PERMU_BLOCK
+LoadInst *get_alloc(Origin *ori, Value *v,
+                    const std::vector<BasicBlock *> &vec) {
+#else
 LoadInst *get_alloc(Origin *ori, Value *v) {
+#endif
   if (auto load = dyn_cast<LoadInst>(v)) {
     return load;
   }
@@ -143,15 +155,19 @@ LoadInst *get_alloc(Origin *ori, Value *v) {
     // call 是函数的返回值!
     auto called = call->getCalledOperand();
     auto call_ori = new Origin(call->getParent()->getParent());
+#ifdef PERMU_BLOCK
+    if (auto load = get_alloc(call_ori, called, vec)) {
+      trace_store(call_ori, load->getParent(), load, vec);
+#else
     if (auto load = get_alloc(call_ori, called)) {
       trace_store(call_ori, load->getParent(), load);
+#endif
     }
     ori->ret.insert(call_ori);
   } else if (auto nu = dyn_cast<ConstantPointerNull>(v)) {
-    // TODO 并没有办法处理(FP)12 之类的情况!
     ori->hasConstantPointerNull = true;
   } else {
-    // TODO bitcast 无力处理!
+    // TODO bitcast 无力处理，而且导致bitcast 的情况不只有这些!
     errs() << *v << "\t";
     errs() << "Holy shit\n";
     assert(false);
@@ -160,9 +176,38 @@ LoadInst *get_alloc(Origin *ori, Value *v) {
   return nullptr;
 }
 
+#ifdef PERMU_BLOCK
+/**
+ * 重写pre_begin的含义即可!
+ */
+void trace_store(Origin *ori, BasicBlock *block, LoadInst *v,
+                 const std::vector<BasicBlock *> &vec) {
+  assert(block != nullptr && v != nullptr);
+
+  if (auto sv = this_block_store_me(block, v)) {
+    if (auto load = get_alloc(ori, sv, vec)) {
+      assert(load != nullptr);
+      trace_store(ori, block, load, vec);
+    }
+  }
+
+  // this block doesn't store me, find the upper one !
+  else {
+    for (auto b = vec.rbegin(); b != vec.rend(); b++) {
+      if (*b == block) {
+        b++;
+        trace_store(ori, *b, v, vec);
+        return;
+      }
+    }
+    errs() << "检查工作在外部已经完成过了";
+    assert(false);
+  }
+}
+#else
 /**
  * 检查在该loadInst 之前一共含有的store 的可能!
- * strace store for the loadInst
+ * trace store for the loadInst
  */
 void trace_store(Origin *ori, BasicBlock *block, LoadInst *v) {
   // get load instruction
@@ -183,14 +228,20 @@ void trace_store(Origin *ori, BasicBlock *block, LoadInst *v) {
     }
   }
 }
+#endif
 
 // 外部接口
 void make_Origin(Origin *ori, BasicBlock *block, Value *v) {
   assert(block != nullptr && v != nullptr);
+#ifdef PERMU_BLOCK
+  // 等到获取到一个具体的在处理
+  to_trace_origin.push_back(std::make_tuple(v, ori, block));
+#else
   if (auto load = get_alloc(ori, v)) {
     assert(load != nullptr);
     trace_store(ori, block, load);
   }
+#endif
 }
 
 void collect_nodes(Instruction *inst) {
@@ -297,20 +348,154 @@ void expand_the_graph() {
   }
 }
 
+#ifdef PERMU_BLOCK
+int get_succ_num(BasicBlock *block) {
+  int num = 0;
+  auto it = succ_begin(&*block);
+  auto et = succ_end(&*block);
+  for (; it != et; ++it) {
+    num++;
+  }
+  return num;
+}
+
+void get_origin_from_permutaion(const std::vector<BasicBlock *> &vec) {
+  for (auto v : to_trace_origin) {
+    auto value = std::get<0>(v);
+    auto ori = std::get<1>(v);
+    auto block = std::get<2>(v);
+
+    errs() << *value << "\n";
+    // TODO debug me
+
+
+    for (auto b : vec) {
+      if (b == block) {
+        if (auto load = get_alloc(ori, value, vec)) {
+          assert(load != nullptr);
+          trace_store(ori, block, load, vec);
+        }
+        return;
+      }
+    }
+  }
+}
+
+void permutate_blocks(std::vector<BasicBlock *> &vec, BasicBlock *block) {
+  vec.push_back(block);
+  auto it = succ_begin(&*block);
+  auto et = succ_end(&*block);
+  if (it == et) {
+    /* errs() << "^^^^^^^^^^^^^^^^^^^\n"; */
+    /* for(auto b : vec){ */
+    /*   errs() << "------------------\n"; */
+    /*   errs() << *b << "\n"; */
+    /* } */
+    get_origin_from_permutaion(vec);
+  } else {
+    for (; it != et; ++it) {
+      BasicBlock *succ = *it;
+      bool find_do_while = false;
+      for (BasicBlock *b : vec) {
+        if (succ == b) {
+          auto b_succ_num = get_succ_num(b);
+
+          // do while 回指向直接无视，
+          if (b_succ_num == 1) {
+            find_do_while = true;
+            break;
+          }
+
+          // for 和 while 回来指向分支为两条, 其中一条是我们需要的出口
+          else if (b_succ_num == 2) {
+            auto it = succ_begin(&*b);
+            auto succ_a = *it;
+            it++;
+            auto succ_b = *it;
+
+            for (auto v : vec) {
+              if (v == succ_a) {
+                succ_a = nullptr;
+                break;
+              }
+            }
+
+            for (auto v : vec) {
+              if (v == succ_b) {
+                succ_b = nullptr;
+                break;
+              }
+            }
+
+            BasicBlock *next;
+            if (succ_a == nullptr) {
+              assert(succ_b != nullptr);
+              next = succ_b;
+            }
+
+            else if (succ_b == nullptr) {
+              assert(succ_a != nullptr);
+              next = succ_a;
+            }
+
+            else {
+              errs() << "必须是一个访问过，一个没有访问过\n";
+              assert(false);
+            }
+
+            /* vec.push_back(b); */
+            permutate_blocks(vec, next);
+            /* vec.pop_back(); */
+            vec.pop_back();
+            return;
+          }
+
+          else {
+            errs() << "没有goto语句，仅仅分析if while 和 do while\n";
+            assert(false);
+          }
+        }
+      }
+      if (find_do_while) {
+        continue;
+      }
+      permutate_blocks(vec, succ);
+    }
+  }
+  vec.pop_back();
+}
+#endif
+
 ///!TODO TO BE COMPLETED BY YOU FOR ASSIGNMENT 2
 struct FuncPtrPass : public FunctionPass {
   static char ID; // Pass identification, replacement for typeid
 
   FuncPtrPass() : FunctionPass(ID) {}
   virtual bool runOnFunction(Function &F) override {
-    errs() << F << "\n";
+    /* errs() << F << "\n"; */
     for (auto block = F.getBasicBlockList().begin();
-
          block != F.getBasicBlockList().end(); block++) {
       for (auto inst = block->begin(); inst != block->end(); inst++) {
+        // llvm-9 seems doesn't generate phi and select
+        if (isa<PHINode>(inst)) {
+          errs() << "we don't use phi !\n";
+          assert(false);
+        }
         collect_nodes(&*inst);
       }
     }
+#ifdef PERMU_BLOCK
+    std::vector<BasicBlock *> vec;
+    auto block = F.getBasicBlockList().begin();
+    permutate_blocks(vec, &*block);
+    if (vec.size() != 0) {
+      for(auto b : vec){
+        errs() << "----------------------\n";
+        errs() << *b << "\n";
+      }
+      assert(false);
+    }
+#endif
     return false;
   }
 
@@ -321,7 +506,6 @@ struct FuncPtrPass : public FunctionPass {
         for (auto inst = B->begin(); inst != B->end(); inst++) {
           if (isa<CallInst>(&(*inst)) || isa<InvokeInst>(&(*inst))) {
             CallInst *t = cast<CallInst>(&(*inst));
-            
             if (auto f = t->getCalledFunction()) {
               if (f->getName() == "llvm.dbg.declare") {
                 continue;

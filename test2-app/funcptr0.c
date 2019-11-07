@@ -1,9 +1,9 @@
-int plus(int a, int b) {
+int add(int a, int b) {
    return a+b;
 }
 
-int clever() {
-    int (*a_fptr)(int, int) = plus;
+int foo() {
+    int (*a_fptr)(int, int) = add;
 
     int op1 =1,  op2=2;
 
@@ -12,4 +12,4 @@ int clever() {
 }
 
 
-///  10 : plus
+///  10 : add

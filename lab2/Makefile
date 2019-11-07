@@ -14,7 +14,7 @@ RUN_DEP=${TEST_CASE} a.out
 
 DEBUG_ME=../test2-app/case.bc
 # DEBUG_ME=../test2-app/cfg.bc
-# DEBUG_ME=../test2/test01.bc
+# DEBUG_ME=../test2/test14.bc
 
 a.out:LLVMAssignment.cpp
 	clang++ -g LLVMAssignment.cpp $(FLAGS)
@@ -40,8 +40,10 @@ cp:
 test: ${TEST_CASE}
 	@echo "refresh case"
 
+# https://stackoverflow.com/questions/10475040/gcc-g-vs-g3-gdb-flag-what-is-the-difference
 %.bc: %.c
-	clang -c -g -emit-llvm -O0 $< -o $@
+	clang -c -emit-llvm -O0 -g3 $< -o $@
+	# clang -c -emit-llvm -O0 $< -o $@
 
 ra: ${RUN_DEP}
 	 @for test in ${TEST_CASE}; do \

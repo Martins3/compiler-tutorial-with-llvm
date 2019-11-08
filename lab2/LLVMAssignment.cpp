@@ -50,6 +50,8 @@ class Origin {
 public:
   Function *F; // 当前Origin 对对应的函数
 
+  // FIXME 目前的机制其实仅仅处理函数内部的含有null, 但是如果null
+  // 作为函数的参数传递其实没有被考虑的! 还不如直接剔除整个对于null的考虑
   // 来源来自于null 导致其必然不会参加edge 的构建
   bool hasConstantPointerNull;
 
@@ -99,10 +101,32 @@ std::map<Origin *, std::vector<Origin *>> para_pas;
 std::set<Origin *> ori_nodes;
 
 // call/invoke 指令 和 其对应的Origin
+// 如果使用PERMU_BLOCK 的时候，这只是一种收集的内容，
+// 查询还是需要从final_result 中间
 std::map<Instruction *, Origin *> result;
 
 #ifdef PERMU_BLOCK
-std::vector<std::tuple<Value *, Origin *, BasicBlock *>> to_trace_origin;
+std::map<Instruction *, std::set<Function *>> final_result;
+std::map<Function *, std::vector<std::vector<BasicBlock *>>> possible_seq;
+
+// maybe we can have a better solution ?
+void add_one_call_seq(Function *f, std::vector<BasicBlock *> &vec) {
+  auto find = possible_seq.find(f);
+  if (find != possible_seq.end()) {
+    find->second.push_back(vec);
+  } else {
+    possible_seq[f] = std::vector<std::vector<BasicBlock *>>{vec};
+  }
+}
+
+void clear_birdge() {
+  function_ret.clear();
+  para_pas.clear();
+  ori_nodes.clear();
+  result.clear();
+}
+
+// clear this one
 void trace_store(Origin *ori, BasicBlock *block, LoadInst *v,
                  const std::vector<BasicBlock *> &vec);
 #else
@@ -196,7 +220,13 @@ void trace_store(Origin *ori, BasicBlock *block, LoadInst *v,
     for (auto b = vec.rbegin(); b != vec.rend(); b++) {
       if (*b == block) {
         b++;
-        trace_store(ori, *b, v, vec);
+        if (b != vec.rend()) {
+          trace_store(ori, *b, v, vec);
+        } else {
+          // 就是存在不确定的情况
+          // 表示当前route没有对于该数值赋值
+          // 查不出数值，问题也不是很严重
+        }
         return;
       }
     }
@@ -231,11 +261,15 @@ void trace_store(Origin *ori, BasicBlock *block, LoadInst *v) {
 #endif
 
 // 外部接口
-void make_Origin(Origin *ori, BasicBlock *block, Value *v) {
+void make_Origin(Origin *ori, BasicBlock *block, Value *v,
+                 const std::vector<BasicBlock *> &vec) {
   assert(block != nullptr && v != nullptr);
+
 #ifdef PERMU_BLOCK
-  // 等到获取到一个具体的在处理
-  to_trace_origin.push_back(std::make_tuple(v, ori, block));
+  if (auto load = get_alloc(ori, v, vec)) {
+    assert(load != nullptr);
+    trace_store(ori, block, load, vec);
+  }
 #else
   if (auto load = get_alloc(ori, v)) {
     assert(load != nullptr);
@@ -244,7 +278,11 @@ void make_Origin(Origin *ori, BasicBlock *block, Value *v) {
 #endif
 }
 
+#ifdef PERMU_BLOCK
+void collect_nodes(Instruction *inst, const std::vector<BasicBlock *> &vec) {
+#else
 void collect_nodes(Instruction *inst) {
+#endif
   // graph 的连接 : invoke 指令 和 ret 指令
 
   auto F = inst->getParent()->getParent();
@@ -262,8 +300,13 @@ void collect_nodes(Instruction *inst) {
 
     Origin *called_ori = new Origin(F);
     auto call = t->getCalledOperand();
+#ifdef PERMU_BLOCK
+    make_Origin(called_ori, t->getParent(), call, vec);
+#else
     make_Origin(called_ori, t->getParent(), call);
+#endif
     result[t] = called_ori;
+
     ori_nodes.insert(called_ori);
 
     std::vector<Origin *> para_vec;
@@ -275,7 +318,11 @@ void collect_nodes(Instruction *inst) {
       if (ty->isPointerTy()) {
         if (ty->getPointerElementType()->isFunctionTy()) {
           ori = new Origin(F);
+#ifdef PERMU_BLOCK
+          make_Origin(ori, t->getParent(), arg, vec);
+#else
           make_Origin(ori, t->getParent(), arg);
+#endif
           ori_nodes.insert(ori);
         }
       }
@@ -290,7 +337,11 @@ void collect_nodes(Instruction *inst) {
       if (retType->isPointerTy()) {
         if (retType->getPointerElementType()->isFunctionTy()) {
           Origin *ori = new Origin(F);
+#ifdef PERMU_BLOCK
+          make_Origin(ori, t->getParent(), t->getReturnValue(), vec);
+#else
           make_Origin(ori, t->getParent(), t->getReturnValue());
+#endif
           ori_nodes.insert(ori);
           function_ret[F] = ori;
         }
@@ -365,38 +416,39 @@ int get_succ_num(BasicBlock *block) {
   return num;
 }
 
-void get_origin_from_permutaion(const std::vector<BasicBlock *> &vec) {
-  for (auto v : to_trace_origin) {
-    auto value = std::get<0>(v);
-    auto ori = std::get<1>(v);
-    auto block = std::get<2>(v);
+/* void get_origin_from_permutaion(const std::vector<BasicBlock *> &vec) { */
+/*   for (auto v : to_trace_origin) { */
+/*     auto value = std::get<0>(v); */
+/*     auto ori = std::get<1>(v); */
+/*     auto block = std::get<2>(v); */
 
-    errs() << "----------------\n";
-    errs() << *value << "\n";
-    errs() << "----------------\n";
+/*     errs() << "----------------\n"; */
+/*     errs() << *value << "\n"; */
+/*     errs() << "----------------\n"; */
 
-    for (auto b : vec) {
-      if (b == block) {
-        if (auto load = get_alloc(ori, value, vec)) {
-          assert(load != nullptr);
-          trace_store(ori, block, load, vec);
-        }
-      }
-    }
-  }
-}
+/*     for (auto b : vec) { */
+/*       if (b == block) { */
+/*         if (auto load = get_alloc(ori, value, vec)) { */
+/*           assert(load != nullptr); */
+/*           trace_store(ori, block, load, vec); */
+/*         } */
+/*       } */
+/*     } */
+/*   } */
+/* } */
 
 void permutate_blocks(std::vector<BasicBlock *> &vec, BasicBlock *block) {
   vec.push_back(block);
   auto it = succ_begin(&*block);
   auto et = succ_end(&*block);
   if (it == et) {
-    errs() << "######## Find one route ###########\n";
-    for(auto b : vec){
-      errs() << *b << "\n";
-    }
-    errs() << "#################\n";
-    get_origin_from_permutaion(vec);
+    /* errs() << "######## Find one route ###########\n"; */
+    /* for (auto b : vec) { */
+    /*   errs() << *b << "\n"; */
+    /* } */
+    /* errs() << "#################\n"; */
+    /* get_origin_from_permutaion(vec); */
+    add_one_call_seq(block->getParent(), vec);
   } else {
     for (; it != et; ++it) {
       BasicBlock *succ = *it;
@@ -469,6 +521,77 @@ void permutate_blocks(std::vector<BasicBlock *> &vec, BasicBlock *block) {
   }
   vec.pop_back();
 }
+
+void collect_nodes_in_one_func(std::vector<BasicBlock *> &vec) {
+  for (auto block : vec) {
+    for (auto inst = block->begin(); inst != block->end(); inst++) {
+      // llvm-9 seems doesn't generate phi and select
+      if (isa<PHINode>(inst)) {
+        errs() << "we don't use phi !\n";
+        assert(false);
+      }
+      collect_nodes(&*inst, vec);
+    }
+  }
+}
+
+void do_one_possible_route(
+    std::map<Function *, std::vector<std::vector<BasicBlock *>>>::iterator i,
+    std::vector<std::vector<BasicBlock *>> &vec) {
+  if (i == possible_seq.end()) {
+    for (auto p : vec) {
+      collect_nodes_in_one_func(p);
+    }
+
+    expand_the_graph();
+    for (auto res : result) {
+      auto f = final_result.find(res.first);
+      if (f == final_result.end()) {
+        std::set<Function *> v;
+        for (auto fun : res.second->fun) {
+          v.insert(fun);
+        }
+        if (res.second->hasConstantPointerNull)
+          v.insert(nullptr);
+
+        final_result[res.first] = v;
+      } else {
+        for (auto fun : res.second->fun) {
+          f->second.insert(fun);
+        }
+        if (res.second->hasConstantPointerNull)
+          f->second.insert(nullptr);
+      }
+    }
+    clear_birdge(); // 收割结束，桥梁重做
+  } else {
+    for (auto p : i->second) {
+      // wired trick
+      ++i;
+      auto next_i = i;
+      --i;
+      /* collect_nodes_in_one_func(p); */
+      vec.push_back(p);
+      do_one_possible_route(next_i, vec);
+      vec.pop_back();
+    }
+  }
+}
+
+void trace_all_possible_route() {
+  if (possible_seq.size() == 0)
+    return;
+  auto f = possible_seq.begin();
+  std::vector<std::vector<BasicBlock *>> vec;
+
+  for (auto p : f->second) {
+    vec.push_back(p);
+    do_one_possible_route(f, vec);
+    vec.pop_back();
+  }
+
+  assert(vec.size() == 0);
+}
 #endif
 
 ///!TODO TO BE COMPLETED BY YOU FOR ASSIGNMENT 2
@@ -478,6 +601,22 @@ struct FuncPtrPass : public FunctionPass {
   FuncPtrPass() : FunctionPass(ID) {}
   virtual bool runOnFunction(Function &F) override {
     /* errs() << F << "\n"; */
+
+    // 让其从下向上进行遍历，
+    // 这一个部分完成origin 的建立和收集工作
+#ifdef PERMU_BLOCK
+
+    std::vector<BasicBlock *> vec;
+    auto block = F.getBasicBlockList().begin();
+    permutate_blocks(vec, &*block);
+    if (vec.size() != 0) {
+      for (auto b : vec) {
+        errs() << "----------------------\n";
+        errs() << *b << "\n";
+      }
+      assert(false);
+    }
+#else
     for (auto block = F.getBasicBlockList().begin();
          block != F.getBasicBlockList().end(); block++) {
       errs() << *block << "\n";
@@ -491,29 +630,48 @@ struct FuncPtrPass : public FunctionPass {
         collect_nodes(&*inst);
       }
     }
-#ifdef PERMU_BLOCK
-    errs() << "---------All the value we collec-----\n";
-    for (auto v : to_trace_origin) {
-      errs() << *(std::get<0>(v)) << "\n";
-    }
-    errs() << "---------All the value we collec-----\n";
-
-    std::vector<BasicBlock *> vec;
-    auto block = F.getBasicBlockList().begin();
-    permutate_blocks(vec, &*block);
-    if (vec.size() != 0) {
-      for (auto b : vec) {
-        errs() << "----------------------\n";
-        errs() << *b << "\n";
-      }
-      assert(false);
-    }
-    to_trace_origin.clear();
 #endif
     return false;
   }
 
   virtual bool doFinalization(Module &M) override {
+    // 注意现在，仅仅计算了所有的函数的路径可能性
+#ifdef PERMU_BLOCK
+    trace_all_possible_route();
+
+    for (auto F = M.begin(); F != M.end(); F++) {
+      for (auto B = F->begin(); B != F->end(); B++) {
+        for (auto inst = B->begin(); inst != B->end(); inst++) {
+          if (isa<CallInst>(&(*inst)) || isa<InvokeInst>(&(*inst))) {
+            CallInst *t = cast<CallInst>(&(*inst));
+            if (auto f = t->getCalledFunction()) {
+              if (f->getName() == "llvm.dbg.declare") {
+                continue;
+              }
+            }
+            auto fun = final_result[t];
+            auto d = t->getDebugLoc();
+            if (!d.isImplicitCode()) {
+              errs() << d.getLine() << " ";
+            } else {
+              errs() << "-g"
+                     << " ";
+            }
+            for (auto f : fun) {
+              if (f != nullptr) {
+                errs() << f->getName() << " ";
+              } else {
+                errs() << "NULL"
+                       << " ";
+              }
+            }
+            errs() << "\n";
+          }
+        }
+      }
+    }
+
+#else
     expand_the_graph();
     for (auto F = M.begin(); F != M.end(); F++) {
       for (auto B = F->begin(); B != F->end(); B++) {
@@ -545,6 +703,7 @@ struct FuncPtrPass : public FunctionPass {
         }
       }
     }
+#endif
     return false;
   }
 };

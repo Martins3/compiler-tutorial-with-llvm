@@ -34,6 +34,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Instructions.h>
+#include "llvm/Bitcode/BitcodeWriter.h"
 #include <set>
 
 using namespace llvm;
@@ -716,8 +717,10 @@ struct FuncPtrPass : public FunctionPass {
   virtual bool doFinalization(Module &M) override {
     // 注意现在，仅仅计算了所有的函数的路径可能性
 #ifdef PERMU_BLOCK
+
     trace_all_possible_route();
 
+    bool modification = false;
     for (auto F = M.begin(); F != M.end(); F++) {
       for (auto B = F->begin(); B != F->end(); B++) {
         for (auto inst = B->begin(); inst != B->end(); inst++) {
@@ -728,7 +731,7 @@ struct FuncPtrPass : public FunctionPass {
                 continue;
               }
             }
-            auto fun = final_result[t];
+
             auto d = t->getDebugLoc();
             if (!d.isImplicitCode()) {
               errs() << d.getLine() << " ";
@@ -736,19 +739,37 @@ struct FuncPtrPass : public FunctionPass {
               errs() << "-g"
                      << " ";
             }
+
+            // 内置的函数
+            if (auto f = t->getCalledFunction()) {
+              errs() << f->getName() << "\n";
+              continue;
+            }
+
+            int unique = 0;
+            Function * func = nullptr;
+            auto fun = final_result[t];
             for (auto f : fun) {
               if (f != nullptr) {
                 errs() << f->getName() << " ";
+                unique ++;
+                func = f;
               } else {
                 errs() << "NULL"
                        << " ";
               }
+            }
+
+            if(unique == 1){
+              modification = true;
+              t->setCalledFunction(func);
             }
             errs() << "\n";
           }
         }
       }
     }
+    return modification;
 #else
     expand_the_graph();
     for (auto F = M.begin(); F != M.end(); F++) {
@@ -781,8 +802,8 @@ struct FuncPtrPass : public FunctionPass {
         }
       }
     }
-#endif
     return false;
+#endif
   }
 };
 
@@ -815,5 +836,11 @@ int main(int argc, char **argv) {
 
   /// Your pass to print Function and Call Instructions
   Passes.add(new FuncPtrPass());
-  Passes.run(*M.get());
+  if(Passes.run(*M.get())){
+    std::error_code EC;
+    std::unique_ptr<ToolOutputFile>Out(
+        new ToolOutputFile(InputFilename, EC, sys::fs::F_None));
+    llvm::WriteBitcodeToFile(*M.get(), Out->os());
+    Out->keep();
+  }
 }

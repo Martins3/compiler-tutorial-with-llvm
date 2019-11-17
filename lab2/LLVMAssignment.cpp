@@ -40,6 +40,10 @@ using namespace llvm;
 
 #define PERMU_BLOCK 1
 
+#ifndef PERMU_BLOCK
+#error "In fact, current algorithm can't handle back-edge, forloop!"
+#endif
+
 inline void TODO() {
   fprintf(stderr, "%s\n", "todo !");
   assert(false);
@@ -126,6 +130,92 @@ void clear_birdge() {
   result.clear();
 }
 
+bool cmpValue(Value *L, Value *R) {
+  std::string bufferL;
+  raw_string_ostream osL(bufferL);
+  osL << *L;
+  std::string strVL = osL.str();
+
+  std::string bufferR;
+  raw_string_ostream osR(bufferR);
+  osR << *R;
+  std::string strVR = osR.str();
+
+  if (strVL != strVR)
+    return false;
+
+  return true;
+}
+
+bool cmpGetElementPtrInst(GetElementPtrInst *gep_left,
+                          GetElementPtrInst *gep_right) {
+
+  unsigned int ASL = gep_left->getPointerAddressSpace();
+  unsigned int ASR = gep_right->getPointerAddressSpace();
+  if (ASL != ASR)
+    return false;
+
+  Type *ETL = gep_left->getSourceElementType();
+  Type *ETR = gep_right->getSourceElementType();
+
+  // 比较类型一致
+  std::string bufferL;
+  raw_string_ostream osL(bufferL);
+  osL << *ETL;
+  std::string strETL = osL.str();
+
+  std::string bufferR;
+  raw_string_ostream osR(bufferR);
+  osR << *ETR;
+  std::string strETR = osR.str();
+
+  if (strETL != strETR)
+    return false;
+
+  unsigned int NPL = gep_left->getNumOperands();
+  unsigned int NPR = gep_right->getNumOperands();
+
+  if (NPL != NPR)
+    return false;
+
+  // 在指针中间的偏移量一致
+  // 可以处理其中变量为偏移量的情况的啊 !
+  for (unsigned i = 0, e = gep_left->getNumOperands(); i != e; ++i) {
+    Value *vL = gep_left->getOperand(i);
+    Value *vR = gep_right->getOperand(i);
+    if (cmpValue(vL, vR) == false)
+      return false;
+  }
+  return true;
+}
+
+// 放到call 指令的路线中间
+// 处理的情况太简单了
+// 1. 不能处理多级嵌套
+// 2. 不能处理来自于函数的参数和返回值传递
+// 3. malloc 的内容也不能处理
+void getGetElementPtrInst(GetElementPtrInst *getElementPtrInst, Origin * ori) {
+  Value *v = getElementPtrInst->getOperand(0);
+  for (User *U : v->users()) {
+    // 如果数值来源于gep，那么gep对外的分发数据时钟为gep
+    if (GetElementPtrInst *gepi = dyn_cast<GetElementPtrInst>(U)) {
+      // 判断前者是不是store 到同一个位置 ?
+      if (cmpGetElementPtrInst(getElementPtrInst, gepi) == true) {
+        // 检查是不是访问到的位置
+        for (User *UL : gepi->users()) {
+          // 检查是不是store 指令，到同一个位置
+          if (StoreInst *storeInst = dyn_cast<StoreInst>(UL)) {
+            Value *vl = storeInst->getOperand(0);
+            if (Function *func = dyn_cast<Function>(vl)) {
+              ori->fun.insert(func);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 // clear this one
 void trace_store(Origin *ori, BasicBlock *block, LoadInst *v,
                  const std::vector<BasicBlock *> &vec);
@@ -133,6 +223,11 @@ void trace_store(Origin *ori, BasicBlock *block, LoadInst *v,
 void trace_store(Origin *ori, BasicBlock *block, LoadInst *v);
 #endif
 
+/**
+ * 1. 曾经的假设，当出现load, load 指向的内容必定是 alloc 的，而且 alloc
+ * 出现的位置 在函数开始的 basicblock 中
+ * 2.
+ */
 Value *this_block_store_me(BasicBlock *b, LoadInst *v) {
   auto contain_me = false;
   for (auto inst = b->rbegin(); inst != b->rend(); inst++) {
@@ -168,9 +263,17 @@ LoadInst *get_alloc(Origin *ori, Value *v,
 #else
 LoadInst *get_alloc(Origin *ori, Value *v) {
 #endif
+  // 在之前的模型中间，load 指令的操作数来源必定是第一个block的alloc指令的结果
   if (auto load = dyn_cast<LoadInst>(v)) {
-    return load;
+    // load 来自于一个
+    if (auto f = dyn_cast<GetElementPtrInst>(load->getOperand(0))) {
+      getGetElementPtrInst(f, ori);
+      return nullptr;
+    } else {
+      return load;
+    }
   }
+
   if (auto f = dyn_cast<Function>(v)) {
     ori->fun.insert(f);
   } else if (auto arg = dyn_cast<Argument>(v)) {
@@ -193,7 +296,7 @@ LoadInst *get_alloc(Origin *ori, Value *v) {
   } else {
     // TODO bitcast 无力处理，而且导致bitcast 的情况不只有这些!
     errs() << *v << "\t";
-    errs() << "Holy shit\n";
+    errs() << "Holy shit, you should reach here !\n";
     assert(false);
   }
 
@@ -209,6 +312,7 @@ void trace_store(Origin *ori, BasicBlock *block, LoadInst *v,
   assert(block != nullptr && v != nullptr);
 
   if (auto sv = this_block_store_me(block, v)) {
+    // 如果获取 get_alloc 返回不为 nullptr 那么需要继续递归分析
     if (auto load = get_alloc(ori, sv, vec)) {
       assert(load != nullptr);
       trace_store(ori, block, load, vec);
@@ -290,7 +394,8 @@ void collect_nodes(Instruction *inst) {
   if (isa<CallInst>(&(*inst)) || isa<InvokeInst>(&(*inst))) {
     CallInst *t = cast<CallInst>(&(*inst));
     if (auto f = t->getCalledFunction()) {
-      if (f->getName() == "llvm.dbg.declare") {
+      // llvm.dbg.declare
+      if(f->isIntrinsic()){
         return;
       }
     }
@@ -416,38 +521,12 @@ int get_succ_num(BasicBlock *block) {
   return num;
 }
 
-/* void get_origin_from_permutaion(const std::vector<BasicBlock *> &vec) { */
-/*   for (auto v : to_trace_origin) { */
-/*     auto value = std::get<0>(v); */
-/*     auto ori = std::get<1>(v); */
-/*     auto block = std::get<2>(v); */
-
-/*     errs() << "----------------\n"; */
-/*     errs() << *value << "\n"; */
-/*     errs() << "----------------\n"; */
-
-/*     for (auto b : vec) { */
-/*       if (b == block) { */
-/*         if (auto load = get_alloc(ori, value, vec)) { */
-/*           assert(load != nullptr); */
-/*           trace_store(ori, block, load, vec); */
-/*         } */
-/*       } */
-/*     } */
-/*   } */
-/* } */
 
 void permutate_blocks(std::vector<BasicBlock *> &vec, BasicBlock *block) {
   vec.push_back(block);
   auto it = succ_begin(&*block);
   auto et = succ_end(&*block);
   if (it == et) {
-    /* errs() << "######## Find one route ###########\n"; */
-    /* for (auto b : vec) { */
-    /*   errs() << *b << "\n"; */
-    /* } */
-    /* errs() << "#################\n"; */
-    /* get_origin_from_permutaion(vec); */
     add_one_call_seq(block->getParent(), vec);
   } else {
     for (; it != et; ++it) {
@@ -670,7 +749,6 @@ struct FuncPtrPass : public FunctionPass {
         }
       }
     }
-
 #else
     expand_the_graph();
     for (auto F = M.begin(); F != M.end(); F++) {

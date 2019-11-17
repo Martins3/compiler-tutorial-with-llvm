@@ -1,3 +1,4 @@
+#include <stdlib.h>
 struct A {
    int op;
    int (*a_fptr)(int, int);
@@ -9,6 +10,7 @@ int add(int a, int b) {
 }
 
 int foo() {
+  void * xs = (void *)malloc(10);
     struct A a;
     a.a_fptr = add;
 

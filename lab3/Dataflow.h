@@ -144,7 +144,8 @@ void printDataflowResult(raw_ostream &out,
     if (it->first == NULL)
       out << "*";
     else
-      it->first->dump();
+      /* it->first->dump(); */
+      errs() << it->first << "\n";
     out << "\n\tin : " << it->second.first << "\n\tout :  " << it->second.second
         << "\n";
   }

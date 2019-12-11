@@ -71,7 +71,8 @@ public:
   Liveness() : FunctionPass(ID) {}
 
   bool runOnFunction(Function &F) override {
-    F.dump();
+    /* F.dump(); */
+    errs() << F << "\n";
     LivenessVisitor visitor;
     DataflowResult<LivenessInfo>::Type result;
     LivenessInfo initval;

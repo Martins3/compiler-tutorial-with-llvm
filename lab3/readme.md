@@ -37,24 +37,26 @@ https://www.cs.utexas.edu/users/lin/papers/cgo11.pdf
       1. 其实，利用compDFVal 函数进行分析，当遇到每一个函数的时候，进入到函数中间，然后对于该进行 compBackwardDataflow , 其中 initval 通过参数分析得到 !
       2. 
 
-我TM 的 phi 节点在哪里啊 ?
-
-
-
 ## Read the test case
-alias 问题，如何知道 ?
-1. 函数就是int (treat it as, 当使用，对于foo minus 之类的, 遇到的时候，处理为 ...)
-2. 数组的处理
-3. field 处理 :
-    1. 结构体本身为指针，x.a = ptr 相当于 x 的指向集合中间含 ptr
-    2. 当 `x->a`，相当于进行两次 `*` 操作
+11. should be ok :
+18. 
+24. malloc `*mf_ptr` should handle specially(maybe never tested)
+
 
 ## TODO
 1. remove the super stupid FuncOrPtr to Value 
 2. not find & empty  : clear set  model should be rebuild, or we can't avoid the bug
 
 
+
 3. create pointer, malloc and array  test case
   1. get the inst
   3. transter to 
-  
+
+
+All the time, we are handling the same problem,
+what if one of some "crash", the answer is clear :
+after this instruction, the dfval is cleaned !
+1. generally, the block is called with correct data flow, 
+but the algorithm works even the dataflow is random,
+by clean the dfval

@@ -1,42 +1,43 @@
 #include <stdlib.h>
-struct fptr
-{
-	int (*p_fptr)(int, int);
-};
-struct fsptr
-{
-struct fptr * sptr;
-};
-struct wfsptr
-{
-	struct fsptr * wfptr;
-};
+
 int plus(int a, int b) {
    return a+b;
 }
 
-int minus(int a, int b) {
-   return a-b;
-}
-void foo(int x)
+int minus(int a,int b)
 {
-	struct fptr a_fptr;
-	struct fsptr s_fptr;
-	struct wfsptr* w_fptr=(struct wfsptr*)malloc(sizeof(struct wfsptr));
-	s_fptr.sptr=&a_fptr;
-	w_fptr->wfptr=&s_fptr;
-	if(x>1)
-	{
-		 a_fptr.p_fptr=minus;
-		 x=s_fptr.sptr->p_fptr(1,x);
-		 a_fptr.p_fptr=plus;
-	}else
-	{
-		w_fptr->wfptr->sptr->p_fptr=plus;
-	}
-	x=a_fptr.p_fptr(1,x);
+    return a-b;
 }
 
+int foo(int a,int b,int(* a_fptr)(int, int))
+{
+    return a_fptr(a,b);
+}
+
+void make_simple_alias(int (**af_ptr)(int,int),int (**bf_ptr)(int,int) )
+{
+	*af_ptr=*bf_ptr;
+}
+
+int moo(char x)
+{
+    int (*af_ptr)(int ,int ,int(*)(int, int))=foo;
+    int (**pf_ptr)(int,int)=(int (**)(int,int))malloc(sizeof(int (*)(int,int)));
+    int (**mf_ptr)(int,int)=(int (**)(int,int))malloc(sizeof(int (*)(int,int)));
+    	*mf_ptr=minus;
+      *(mf_ptr + 1) = plus;
+    if(x == '+'){
+        *pf_ptr=plus;
+        af_ptr(1,2,*pf_ptr);
+        make_simple_alias(mf_ptr,pf_ptr);
+    }
+    af_ptr(1,2,*mf_ptr);
+    return 0;
+}
+
+// 14 : plus, minus
 // 25 : malloc
-// 31 : minus
-// 37 : plus
+// 26 : malloc
+// 30 : foo
+// 31 : make_simple_alias
+// 33 : foo

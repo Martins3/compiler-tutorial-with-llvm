@@ -117,6 +117,24 @@ private:
 std::set<CallInst *> interprocedure_call; // not all inst is interprocedure_call
 std::map<Function *, std::set<BasicBlock *>> func_ret_bb;
 std::map<Function *, std::set<BasicBlock *>> possible_call_site;
+std::map<Value *,  GetElementPtrInst *> field_access;
+
+// TODO init : field_access
+void init_field_access(){
+
+}
+
+// rebuild empty log : we have a better way to handle the empty set !
+//
+// someone is uninit
+
+bool updateGEP(GetElementPtrInst * gep, const PointToInfo * dfval){
+  // TODO merge the point to set, if any one is not find or empty, return false.
+  auto parent = gep->getPointerOperand();
+  return false;
+}
+
+
 // TODO every function should be register already !
 DataflowResult<PointToInfo>::Type pointToResult;
 // TODO notice, what kept here aer not pointers
@@ -188,14 +206,13 @@ public:
   // variable x point to set never decrease, not it can be !
   void compDFVal(Instruction *inst, PointToInfo *dfval) {
 
-    if (auto value = dyn_cast<GetElementPtrInst>(inst)) {
-         auto pointer = value->getPointerOperand();
-    }
-
-
     // load 和 store 都是 deref
     if (auto store = dyn_cast<StoreInst>(inst)) {
       auto pointer = store->getPointerOperand();
+      if(auto gep = dyn_cast<GetElementPtrInst>(pointer)){
+        // TODO merge it 
+      }
+      
       auto value = store->getValueOperand();
 
       if (!loadStoreCheck(pointer, value))

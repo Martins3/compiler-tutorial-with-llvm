@@ -7,9 +7,8 @@ RUN_DEP=${TEST_CASE} a.out
 
 DEBUG_ME=../test3-app/case.bc
 
-a.out:LLVMAssignment.cpp
+a.out:LLVMAssignment.cpp  Dataflow.h Liveness.h
 	clang++ -g LLVMAssignment.cpp $(FLAGS)
-	@# clang++ LLVMAssignment.cpp $(LIBS_PATH)
 
 #----------------------------
 run: ${RUN_DEP}
@@ -27,7 +26,7 @@ test: ${TEST_CASE}
 
 # https://stackoverflow.com/questions/10475040/gcc-g-vs-g3-gdb-flag-what-is-the-difference
 %.bc: %.c
-	clang -c -emit-llvm -O0 -g3 $< -o $@
+	clang -c -emit-llvm -O0 -g3 -Xclang -disable-O0-optnone $< -o $@
 	# clang -c -emit-llvm -O0 $< -o $@
 
 ra: ${RUN_DEP}

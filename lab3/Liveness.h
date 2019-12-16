@@ -30,6 +30,7 @@ struct LivenessInfo {
   }
 };
 
+// 对于指令循环打印而已
 inline raw_ostream &operator<<(raw_ostream &out, const LivenessInfo &info) {
   for (std::set<Instruction *>::iterator ii = info.LiveVars.begin(),
                                          ie = info.LiveVars.end();
@@ -37,13 +38,20 @@ inline raw_ostream &operator<<(raw_ostream &out, const LivenessInfo &info) {
     const Instruction *inst = *ii;
     out << inst->getName();
     out << " ";
+    // https://llvm.org/doxygen/classllvm_1_1Value.html#adb5c319f5905c1d3ca9eb5df546388c5
+    errs() << "---" << *inst << "---\n";
+    out << "wdnmd";
   }
   return out;
 }
 
+// TODO  DataflowVisitor
+// 1. 提供的接口是什么 ?
+// 2. 能够解决的问题的范围是什么 ?
 class LivenessVisitor : public DataflowVisitor<struct LivenessInfo> {
 public:
   LivenessVisitor() {}
+  // meet 操作，实现为 union 的 ?
   void merge(LivenessInfo *dest, const LivenessInfo &src) override {
     for (std::set<Instruction *>::const_iterator ii = src.LiveVars.begin(),
                                                  ie = src.LiveVars.end();
@@ -52,6 +60,8 @@ public:
     }
   }
 
+  // 装换函数，但是是针对于 instruction 
+  // block 的 compDFVal 只是简单的针对于instruction 的堆积
   void compDFVal(Instruction *inst, LivenessInfo *dfval) override {
     if (isa<DbgInfoIntrinsic>(inst))
       return;

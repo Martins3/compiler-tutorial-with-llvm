@@ -78,14 +78,16 @@ template <class T> struct DataflowResult {
 ///
 /// @param fn The function
 /// @param visitor A function to compute dataflow vals
-/// @param result The results of the dataflow
 /// @initval the Initial dataflow value
+/// @function_worklist used to indicate which function should be run again
 template <class T>
 void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
-                         typename DataflowResult<T>::Type *result,
-                         const T &initval) {
+                        T &initval, std::set<Function *> & function_worklist) {
+  // 和 compBackwardDataflow 有实质区别 ?
   return;
 }
+
+// TODO 到底什么叫做 fixedpoint dataflow function ?
 ///
 /// Compute a backward iterated fixedpoint dataflow function, using a
 /// user-supplied visitor function. Note that the caller must ensure that the
@@ -101,6 +103,7 @@ void compBackwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
                           typename DataflowResult<T>::Type *result,
                           const T &initval) {
 
+  // 算法内容 ? 
   std::set<BasicBlock *> worklist;
 
   // Initialize the worklist with all exit blocks
@@ -123,19 +126,24 @@ void compBackwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
     }
 
     (*result)[bb].second = bbexitval;
+
+    // compDFVal 就是 transfer function
     visitor->compDFVal(bb, &bbexitval, false);
 
+    // 如果导致In 更新，那么继续
     // If outgoing value changed, propagate it along the CFG
     if (bbexitval == (*result)[bb].first)
       continue;
     (*result)[bb].first = bbexitval;
 
+    // 一旦成功刷新，前面的所有bb 需要重新计算
     for (pred_iterator pi = pred_begin(bb), pe = pred_end(bb); pi != pe; pi++) {
       worklist.insert(*pi);
     }
   }
 }
 
+// 对于每一个block输出 in out
 template <class T>
 void printDataflowResult(raw_ostream &out,
                          const typename DataflowResult<T>::Type &dfresult) {
@@ -143,9 +151,12 @@ void printDataflowResult(raw_ostream &out,
        it != dfresult.end(); ++it) {
     if (it->first == NULL)
       out << "*";
-    else
+    else{
       /* it->first->dump(); */
-      errs() << it->first << "\n";
+      /* errs() << it->first << "\n"; */
+      Function * f = it->first->getParent();
+      errs() << f->getName() << "\n";
+    }
     out << "\n\tin : " << it->second.first << "\n\tout :  " << it->second.second
         << "\n";
   }

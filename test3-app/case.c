@@ -1,43 +1,63 @@
 #include <stdlib.h>
+struct fptr
+{
+  int (*p_fptr)(int, int);
+};
+
+struct sfptr{
+  struct fptr * a;
+};
 
 int plus(int a, int b) {
    return a+b;
 }
 
-int minus(int a,int b)
-{
-    return a-b;
+int minus(int a, int b) {
+   return a-b;
 }
 
-int foo(int a,int b,int(* a_fptr)(int, int))
-{
-    return a_fptr(a,b);
+int (*foo(int a, int b, struct fptr * c_fptr, struct fptr * d_fptr))(int, int) {
+   return c_fptr->p_fptr;
 }
 
-void make_simple_alias(int (**af_ptr)(int,int),int (**bf_ptr)(int,int) )
-{
-	*af_ptr=*bf_ptr;
+int (*clever(int a, int b, struct fptr * c_fptr, struct fptr * d_fptr))(int, int) {
+  if(a>0 && b<0)
+  {
+   return d_fptr->p_fptr;
+  }
+  return c_fptr->p_fptr;
 }
 
-int moo(char x)
-{
-    int (*af_ptr)(int ,int ,int(*)(int, int))=foo;
-    int (**pf_ptr)(int,int)=(int (**)(int,int))malloc(sizeof(int (*)(int,int)));
-    int (**mf_ptr)(int,int)=(int (**)(int,int))malloc(sizeof(int (*)(int,int)));
-    	*mf_ptr=minus;
-      *(mf_ptr + 1) = plus;
-    if(x == '+'){
-        *pf_ptr=plus;
-        af_ptr(1,2,*pf_ptr);
-        make_simple_alias(mf_ptr,pf_ptr);
-    }
-    af_ptr(1,2,*mf_ptr);
-    return 0;
+
+typedef  int (*GG)(int, int);
+
+
+void K(GG a, GG b, int x){
+  GG * s;
+  if(x){
+    s = &b;
+  }else{
+   s = &a;
+  }
+
+  if(x){
+    *s = minus;
+  }
+
+  a(1, 2);
 }
 
-// 14 : plus, minus
-// 25 : malloc
-// 26 : malloc
-// 30 : foo
-// 31 : make_simple_alias
-// 33 : foo
+int moo(char x, int op1, int op2) {
+
+  struct fptr a;
+  a.p_fptr = minus;
+  a.p_fptr(1, 2);
+
+  struct sfptr g;
+  g.a = &a;
+  g.a->p_fptr(1, 2);
+  return 0;
+}
+
+// 41 : foo, clever
+// 42 : plus, minus

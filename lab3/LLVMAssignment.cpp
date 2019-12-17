@@ -79,114 +79,95 @@ int functionPtrLevel(Type *t) {
 
 bool isFunctionPtrType(Type *t) { return functionPtrLevel(t) != -1; }
 
-class FuncOrPtr {
-public:
-  Function *const func;
-  Value *const ptr;
-
-  FuncOrPtr(Function *f) : func(f), ptr(nullptr) {}
-  FuncOrPtr(Value *v) : func(nullptr), ptr(v) {
-    if (!isFunctionPtrType(v->getType())) {
-      errs() << "point something unexpected !\n";
-      assert(false);
-    }
-  }
-};
-
-struct PointToInfo {
+class PointToInfo {
   // TODO bottom and top, need special handler ?
 
-  std::map<Value *, std::set<FuncOrPtr *>> point;
+private:
+  // init or empty !
+  // not found : data is not reached.
+  // empty : filed access :
+  std::map<Value *, std::set<Value *>> point;
 
+public:
   PointToInfo() : point() {}
   PointToInfo(const PointToInfo &info) : point(info.point) {}
 
   bool operator==(const PointToInfo &info) const { return point == info.point; }
 
-private:
-  // TODO maybe delete this one ?
-  void isValid(Value *v) {
-    if (isa<Instruction>(v) || isa<Argument>(v)) {
-      return;
+  std::set<Value *> &getPTS(Value *v) {
+    assert(isNotEmpty(v));
+    return point.find(v)->second;
+  }
+
+  void setNotReady(Value *v) { point.erase(v); }
+
+  bool isReady(Value *v) { return point.find(v) != point.end(); }
+
+  void shutdown() { point.clear(); }
+
+  bool isNotEmpty(Value *v) {
+    auto f = point.find(v);
+    return f != point.end() && !f->second.empty();
+  }
+
+  std::set<Value *> &clear(Value *v) {
+    point[v] = std::set<Value *>();
+    return point[v];
+  }
+
+  void merge(const PointToInfo &src) {
+    for (auto a : src.point) {
+      auto v = a.first;
+      auto &pts = a.second;
+      auto f = point.find(v);
+      if (f != point.end()) {
+        point[v].insert(pts.begin(), pts.end());
+      } else {
+        point[v] = pts;
+      }
     }
-    errs() << "Not instruction or argument : " << *v << "\n";
-    assert(false);
   }
 };
 
+// TODO three kinds of init
+// 1. for cirital msg : easy
+// 2. for every block : must
+// 3. for every variable : init and query(query not exit, then treat it
+// as empty)
 std::set<CallInst *> interprocedure_call; // not all inst is interprocedure_call
 std::map<Function *, std::set<BasicBlock *>> func_ret_bb;
 std::map<Function *, std::set<BasicBlock *>> possible_call_site;
-std::map<Value *,  GetElementPtrInst *> field_access;
-
-// TODO init : field_access
-void init_field_access(){
-
-}
-
-// rebuild empty log : we have a better way to handle the empty set !
-//
-// someone is uninit
-
-bool updateGEP(GetElementPtrInst * gep, const PointToInfo * dfval){
-  // TODO merge the point to set, if any one is not find or empty, return false.
-  auto parent = gep->getPointerOperand();
-  return false;
-}
-
+std::map<Value *, GetElementPtrInst *> field_access;
 
 // TODO every function should be register already !
 DataflowResult<PointToInfo>::Type pointToResult;
 // TODO notice, what kept here aer not pointers
 
+// TODO init : field_access
+void initFieldAccess() {}
+
+// TODO init empty PointToInfo for every basic block
+// in fact, parameter and instruction, we can find out !
+void initPointToResult() {}
+
+// rebuild empty log : we have a better way to handle the empty set !
+//
+// someone is uninit
+
+bool updateGEP(GetElementPtrInst *gep, const PointToInfo *dfval) {
+  // TODO merge the point to set, if any one is not find or empty, return false.
+  auto parent = gep->getPointerOperand();
+  return false;
+}
+
 class PointToVisitor {
+  GetElementPtrInst *last_gep;
+
 public:
-  PointToVisitor() {}
+  PointToVisitor() : last_gep(nullptr) {}
   // meet 操作，实现为 union 的 ?
-  void merge(PointToInfo *dest, const PointToInfo &src) {
-    for (auto a : src.point) {
-      auto v = a.first;
-      auto &pts = a.second;
-      auto m = dest->point;
-      auto f = m.find(v);
-      if (f != m.end()) {
-        m[v].insert(pts.begin(), pts.end());
-      } else {
-        m[v] = pts;
-      }
-    }
-  }
 
-  /**
-    void ggg(PTR* * m){
-      **m = minus;
-    }
-
-    ; Function Attrs: noinline nounwind sspstrong uwtable
-    define dso_local void @ggg(i32 (i32, i32)***) #0 !dbg !43 {
-      call void @llvm.dbg.value(metadata i32 (i32, i32)*** %0, metadata !47,
-    metadata !DIExpression()), !dbg !48 %2 = load i32 (i32, i32)**, i32 (i32,
-    i32)*** %0, align 8, !dbg !49 store i32 (i32, i32)* @minus, i32 (i32, i32)**
-    %2, align 8, !dbg !50 ret void, !dbg !51
-    }
-  */
-
-  // TODO what a stupid function
-  std::set<FuncOrPtr *> &clearOrInitPointSet(PointToInfo *dfval, Value *v) {
-    auto &point = dfval->point;
-    auto find = point.find(v);
-    if (find != point.end()) {
-      // TODO three kinds of init
-      // 1. for cirital msg : easy
-      // 2. for every block : must
-      // 3. for every variable : init and query(query not exit, then treat it
-      // as empty)
-      find->second = std::set<FuncOrPtr *>(); // init empty
-    } else {
-      point[v] = std::set<FuncOrPtr *>(); // clear
-    }
-    return point[v];
-  }
+  void merge(PointToInfo *dest, const PointToInfo &src) { dest->merge(src); }
 
   bool loadStoreCheck(Value *pointer, Value *value) {
     auto p_type = pointer->getType();
@@ -202,134 +183,96 @@ public:
     }
   }
 
-  // SSA 意味着什么，如果出现了多个数值，
-  // variable x point to set never decrease, not it can be !
-  void compDFVal(Instruction *inst, PointToInfo *dfval) {
+  void setupConstantPTS(PointToInfo * dfval, Value * value){
+      if (auto f = dyn_cast<Function>(value)) {
+        dfval->clear(value).insert(f);
+      }
+  }
 
-    // load 和 store 都是 deref
+  void compDFVal(Instruction *inst, PointToInfo *dfval) {
+    if (auto gep = dyn_cast<GetElementPtrInst>(inst)) {
+      dfval->clear(gep).insert(gep->getPointerOperand());
+    }
+
+    // *x = y
     if (auto store = dyn_cast<StoreInst>(inst)) {
       auto pointer = store->getPointerOperand();
-      if(auto gep = dyn_cast<GetElementPtrInst>(pointer)){
-        // TODO merge it 
-      }
-      
       auto value = store->getValueOperand();
 
+      setupConstantPTS(dfval, value);
+
       if (!loadStoreCheck(pointer, value))
         return;
 
-      // what pointer point to : equals with p_value
-
-      auto &point = dfval->point;
-      auto find = point.find(pointer);
-
-      if (find == point.end()) {
-        // TODO merge the not find and empty logic
-
-        // similar with callInst, caused by parameter, and we clear all the msg
-        dfval = new PointToInfo();
-        return;
-      }
-      std::set<FuncOrPtr *> &set = find->second;
-      if (set.empty()) {
-        // TODO can't find | find a empty one ?
-        dfval = new PointToInfo();
+      if (!dfval->isNotEmpty(pointer)) {
+        dfval->shutdown(); // store to anywhere, crash it!
         return;
       }
 
-      // there are two way to dfval.point.find : for value is clearly is a
-      // function make
+      std::set<Value *> &set = dfval->getPTS(pointer);
 
-      /*  store i32 (i32, i32)* %14, i32 (i32, i32)** %4, align 8, !dbg !98 */
-      /*  %15 = load i32 (i32, i32)*, i32 (i32, i32)** %4, align 8, !dbg !99 */
+      PointToInfo temp;
+      for (auto i = set.begin(); i != set.end(); i++) {
+        if (set.size() == 1) {
+          Value *o = *(set.begin());
+          dfval->clear(o);
+        }
 
-      // TODO maybe merge these two situation
-      if (set.size() == 1) {
-        FuncOrPtr *o = *(set.begin());
-        assert(o->func == nullptr);
-        Value *val = o->ptr;
-        assert(val != nullptr);
-        std::set<FuncOrPtr *> &val_set = clearOrInitPointSet(dfval, val);
-        auto find = point.find(value);
-        if (find != point.end() && !find->second.empty()) {
-          val_set.insert(find->second.begin(), find->second.end());
-        } else {
-          // caused by *x = para; TODO maybe this is correct way !
-          // why we can't distinguish empty and not find ?
-          dfval = new PointToInfo();
+        if (!dfval->isNotEmpty(value)) {
+          // many one rely on me, but I'am not ready.
+          dfval->shutdown();
           return;
-        }
-      } else {
-        for (auto i = set.begin(); i != set.end(); i++) {
-          FuncOrPtr *o = *i;
-          assert(o->func == nullptr);
-          Value *val = o->ptr;
-          assert(val != nullptr);
-          /* std::set<FuncOrPtr *> &set = clearOrInitPointSet(dfval, val); */
-
-          auto find = point.find(value);
-          if (find != point.end() && !find->second.empty()) {
-            // build new dfval
-            PointToInfo temp;
-            temp.point[val] = find->second;
-            merge(dfval, temp);
-          } else {
-            // caused by *x = para; TODO maybe this is correct way !
-            dfval = new PointToInfo();
-            return;
-          }
+        } else {
+          std::set<Value *> &my_set = dfval->getPTS(value);
+          temp.getPTS(*i) = my_set;
         }
       }
+      merge(dfval, temp);
     }
 
-    if (auto value = dyn_cast<LoadInst>(inst)) {
-      auto pointer = value->getPointerOperand();
-      if (!loadStoreCheck(pointer, value))
+    // y = *x
+    if (auto location = dyn_cast<LoadInst>(inst)) {
+      auto pointer = location->getPointerOperand();
+      if (!loadStoreCheck(pointer, location))
         return;
-      std::set<FuncOrPtr *> &val_set = clearOrInitPointSet(dfval, value);
 
-      auto &point = dfval->point;
-      auto find = point.find(value);
-      if (find != point.end() && !find->second.empty()) {
-        auto &possible_values = find->second;
+      std::set<Value *> &val_set = dfval->clear(location);
 
+      if (!dfval->isNotEmpty(pointer)) {
+        dfval->setNotReady(location);
+        return;
+      } else {
+        std::set<Value *> &possible_values = dfval->getPTS(pointer);
         for (auto possible_v : possible_values) {
-          assert(possible_v->ptr != nullptr && possible_v->func == nullptr);
-          auto possible_find = point.find(possible_v->ptr);
-          if (possible_find != point.end() && !possible_find->second.empty()) {
-            val_set.insert(possible_find->second.begin(),
-                           possible_find->second.end());
+          if (!dfval->isNotEmpty(possible_v)) {
+            dfval->setNotReady(location);
+            return;
           } else {
-            // TODO
+            std::set<Value *> &possible_find = dfval->getPTS(possible_v);
+            val_set.insert(possible_find.begin(), possible_find.end());
           }
         }
-
-      } else {
-        // TODO similar problem, this is paradiam, and we can abstruct as
-        // function
       }
-    }
 
-    if (auto phi = dyn_cast<PHINode>(inst)) {
-      int level = functionPtrLevel(phi->getType());
-      std::set<FuncOrPtr *> &set = clearOrInitPointSet(dfval, phi);
-      auto &point = dfval->point;
+      if (auto phi = dyn_cast<PHINode>(inst)) {
+        /* errs() << *phi << "\n"; */
+        auto level = functionPtrLevel(phi->getType());
+        if (level != -1) {
+          std::set<Value *> &set = dfval->clear(phi);
+          /* errs() << "Parent level : " << level << "\n"; */
 
-      /* errs() << *phi << "\n"; */
-      if (level != -1) {
-        /* errs() << "Parent level : " << level << "\n"; */
-        for (auto v = phi->op_begin(); v != phi->op_end(); v++) {
-          Value *val = v->get();
-          /* errs() << "pts :" << functionPtrLevel(val->getType()) << "\n"; */
-          assert(level == functionPtrLevel(val->getType()));
-          if (level == 1) {
-            if (auto f = dyn_cast<Function>(val)) {
-              set.insert(new FuncOrPtr(f));
-            }
-          } else {
-            auto pts = point.find(val);
-            if (pts != point.end()) {
-              set.insert(pts->second.begin(), pts->second.end());
+          for (auto v = phi->op_begin(); v != phi->op_end(); v++) {
+            Value *val = v->get();
+            setupConstantPTS(dfval,v->get());
+            /* errs() << "pts :" << functionPtrLevel(val->getType()) << "\n"; */
+            assert(level == functionPtrLevel(val->getType()));
+
+            if (dfval->isNotEmpty(val)) {
+              std::set<Value *> &pts = dfval->getPTS(val);
+              set.insert(pts.begin(), pts.end());
+            } else {
+              dfval->setNotReady(phi); // one of my source failed me !
+              return;
             }
           }
         }
@@ -346,27 +289,28 @@ public:
         if (auto f = call->getFunction()) {
           point_to_set.insert(f);
         } else {
-          auto df_point = dfval->point;
-          auto func = df_point.find(call->getCalledValue());
-          if (func != df_point.end()) {
-            // FIXME maybe empty ?
-            for (FuncOrPtr *v : func->second) {
-              assert(v->func != nullptr);
-              point_to_set.insert(v->func);
+          auto caller = call->getCalledValue();
+          if (dfval->isNotEmpty(caller)) {
+            std::set<Value *> func = dfval->getPTS(caller);
+            for (Value *v : func) {
+              if (auto f = dyn_cast<Function>(v)) {
+                point_to_set.insert(f);
+              } else {
+                errs() << "This is a call inst, it should be a function\n";
+                assert(false);
+              }
             }
           } else {
-            dfval = new PointToInfo();
+            dfval->shutdown();
             return;
           }
         }
 
         // update possible_call_site
         auto call_bb = call->getParent();
-
         for (auto call_site : possible_call_site) {
           auto a = call_site.first;
           auto &b = call_site.second;
-
           if (point_to_set.find(a) != point_to_set.end()) {
             b.insert(call_bb);
           } else {
@@ -376,37 +320,33 @@ public:
 
         // handle return value
         bool hasFnPointerRet = isFunctionPtrType(call->getType());
-        auto newDfVal = new PointToInfo();
+        dfval->shutdown();
 
         std::vector<BasicBlock *> all_call_site_bb;
         for (Function *call_site : point_to_set) {
           /* func_ret_bb.find(f); */
           auto &retBB = func_ret_bb[call_site];
           for (BasicBlock *ret : retBB) {
-
             // purge all the local parameter of that function ?
             // no, you can't. if the parameter is int *******a;
-            merge(newDfVal, pointToResult[ret].second);
-
+            merge(dfval, pointToResult[ret].second);
             if (hasFnPointerRet)
               all_call_site_bb.push_back(ret);
           }
         }
 
         // update return value
-        std::set<FuncOrPtr *> &set = clearOrInitPointSet(newDfVal, call);
+        std::set<Value *> &set = dfval->clear(call);
         for (auto ret : all_call_site_bb) {
           ReturnInst *retInst = dyn_cast<ReturnInst>(&*(ret->rbegin()));
-          auto ret_sec_point = pointToResult[ret].second.point;
-          auto find = ret_sec_point.find(retInst);
-          if (find == ret_sec_point.end() || find->second.empty()) {
-            set.insert(find->second.begin(), find->second.end());
+          if (pointToResult[ret].second.isNotEmpty(retInst)) {
+            std::set<Value *> t = pointToResult[ret].second.getPTS(retInst);
+            set.insert(t.begin(), t.end());
           } else {
-            set.clear();
-            break;
+            dfval->setNotReady(call);
+            return;
           }
         }
-        dfval = newDfVal;
       }
     }
   }
@@ -477,7 +417,7 @@ struct FuncPtrPass : public ModulePass {
           /* gep->getPointerOperand(); */
           /* assert(gep->getNumIndices() == 2); */
           errs() << "The gep : " << *gep << "\n";
-          errs() << gep->getNumIndices() << "\n"; // assert this value 
+          errs() << gep->getNumIndices() << "\n"; // assert this value
           errs() << *(gep->getType()) << "\n";
           continue;
           for (auto idx = gep->idx_begin(); idx != gep->idx_end(); idx++) {
@@ -621,7 +561,7 @@ struct FuncPtrPass : public ModulePass {
 
     // Initialize the worklist with all exit blocks
 
-    for (auto F = M.begin(); F != M.end(); F++) {
+    for (auto F = M.rbegin(); F != M.rend(); F++) {
       for (Function::iterator bi = F->begin(); bi != F->end(); ++bi) {
         BasicBlock *bb = &*bi;
         result.insert(std::make_pair(bb, std::make_pair(initval, initval)));
@@ -634,17 +574,6 @@ struct FuncPtrPass : public ModulePass {
       changed = false;
       for (auto bb : worklist) {
         // Merge all incoming value
-
-        // TODO 我猜测在merge 的时候所有的 PointToInfo 的 key 都是不相交的。
-        // 为什么不放在指令内部计算 ?
-        // 对于callInst指令处理的方法 : 简单
-        // 消除了 block AB 的考虑，只有 FUNC_FIRST 需要考虑，在计算pred 的时候
-        //
-        // 所有的block 报告自己是否发生变化，直到没有改变发生。
-        //
-        // 做一个 function, call instruction 的map :
-        // FUNC_FIRST 处理方法是什么，找到对于block B 询问这些函数的 pred
-        // 无穷递归函数 : 自己检查一下自己，参数消减 (TODO 暂时问题不大
 
         PointToInfo bbinval;
 
@@ -678,54 +607,43 @@ struct FuncPtrPass : public ModulePass {
                 assert(false);
               }
             }
-            // merge
 
+            // merge
             for (auto call_site : all_call_site) {
               visitor.merge(&bbinval, result[call_site->getParent()].second);
             }
 
             auto para = criticalParameter(curr_func);
             if (!para.empty()) {
-              // purge para
-              auto &point = bbinval.point;
-              for (auto arg = curr_func->arg_begin();
-                   arg != curr_func->arg_end(); arg++) {
-                if (isFunctionPtrType(arg->getType())) {
-                  point[arg] = std::set<FuncOrPtr *>();
-                  // TODO why not &*arg , I'm not so sure !
-                }
-              }
-
-              // rebuild parameter
+              // build parameter, if one of my source is not ready, then I'm not
+              // ready !
               for (auto arg = curr_func->arg_begin();
                    arg != curr_func->arg_end(); arg++) {
                 if (isFunctionPtrType(arg->getType())) {
 
-                  std::set<FuncOrPtr *> &dest = point[arg];
+                  std::set<Value *> &dest = bbinval.clear(arg);
+
                   for (auto call_site : all_call_site) {
                     auto call_site_bb = call_site->getParent();
-                    const PointToInfo &call_site_info =
-                        result[call_site_bb].first;
+                    PointToInfo &call_site_info = result[call_site_bb].first;
 
                     auto index = arg->getArgNo();
                     auto actual_para = call_site->User::getOperand(index);
 
-                    auto cs_point = call_site_info.point;
-                    auto find = cs_point.find(actual_para);
-                    if (find != cs_point.end()) {
-                      // merge
-                      dest.insert(find->second.begin(), find->second.end());
+                    if (call_site_info.isNotEmpty(actual_para)) {
+                      auto &t = call_site_info.getPTS(actual_para);
+                      dest.insert(t.begin(), t.end());
                     } else {
-                      dest.clear();
+                      bbinval.setNotReady(arg);
                       break;
                     }
                   }
                 }
               }
             }
-
           } else {
             // nobody calls me, so bbinval is empty !
+            // nothing should be down !
           }
 
         } else {
@@ -744,11 +662,6 @@ struct FuncPtrPass : public ModulePass {
           continue;
         changed = true;
         result[bb].second = bbinval;
-
-        // TODO 同样小心处理 (还是先不处理吧 ? 创建一个 interface 出来即可
-        for (auto pi = succ_begin(bb), pe = succ_end(bb); pi != pe; pi++) {
-          worklist.insert(*pi);
-        }
       }
     }
 

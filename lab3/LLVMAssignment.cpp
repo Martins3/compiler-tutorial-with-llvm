@@ -80,12 +80,7 @@ int functionPtrLevel(Type *t) {
 bool isFunctionPtrType(Type *t) { return functionPtrLevel(t) != -1; }
 
 class PointToInfo {
-  // TODO bottom and top, need special handler ?
-
 private:
-  // init or empty !
-  // not found : data is not reached.
-  // empty : filed access :
   std::map<Value *, std::set<Value *>> point;
 
 public:
@@ -100,8 +95,6 @@ public:
   }
 
   void setNotReady(Value *v) { point.erase(v); }
-
-  bool isReady(Value *v) { return point.find(v) != point.end(); }
 
   void shutdown() { point.clear(); }
 
@@ -129,26 +122,26 @@ public:
   }
 };
 
-// TODO three kinds of init
 // 1. for cirital msg : easy
 // 2. for every block : must
 // 3. for every variable : init and query(query not exit, then treat it
 // as empty)
-std::set<CallInst *> interprocedure_call; // not all inst is interprocedure_call
+std::set<CallInst *> interprocedure_call;
+// not all inst is interprocedure_call. TODO init at break
 std::map<Function *, std::set<BasicBlock *>> func_ret_bb;
 std::map<Function *, std::set<BasicBlock *>> possible_call_site;
-std::map<Value *, GetElementPtrInst *> field_access;
 
 // TODO every function should be register already !
 DataflowResult<PointToInfo>::Type pointToResult;
 // TODO notice, what kept here aer not pointers
 
-// TODO init : field_access
-void initFieldAccess() {}
 
 // TODO init empty PointToInfo for every basic block
 // in fact, parameter and instruction, we can find out !
-void initPointToResult() {}
+// maybe if access with [], there are some magical schema.
+void initPointToResult() {
+  
+}
 
 // rebuild empty log : we have a better way to handle the empty set !
 //
@@ -183,10 +176,10 @@ public:
     }
   }
 
-  void setupConstantPTS(PointToInfo * dfval, Value * value){
-      if (auto f = dyn_cast<Function>(value)) {
-        dfval->clear(value).insert(f);
-      }
+  void setupConstantPTS(PointToInfo *dfval, Value *value) {
+    if (auto f = dyn_cast<Function>(value)) {
+      dfval->clear(value).insert(f);
+    }
   }
 
   void compDFVal(Instruction *inst, PointToInfo *dfval) {
@@ -263,7 +256,7 @@ public:
 
           for (auto v = phi->op_begin(); v != phi->op_end(); v++) {
             Value *val = v->get();
-            setupConstantPTS(dfval,v->get());
+            setupConstantPTS(dfval, v->get());
             /* errs() << "pts :" << functionPtrLevel(val->getType()) << "\n"; */
             assert(level == functionPtrLevel(val->getType()));
 
@@ -455,50 +448,6 @@ struct FuncPtrPass : public ModulePass {
 
   bool isFirstBB(BasicBlock *b) { return &*(b->getParent()->begin()) == b; }
 
-  // TODO 4: clear this two function
-  // we don't need the pred
-  // we need the context
-  std::vector<BasicBlock *> getBasicBlockPred(BasicBlock *b) {
-    if (isFirstBB(b)) {
-      return getFirstBasicBlockPred(b);
-    }
-
-    std::vector<BasicBlock *> v;
-    for (pred_iterator pi = pred_begin(b), pe = pred_end(b); pi != pe; pi++) {
-      v.push_back(*pi);
-    }
-    return v;
-  }
-
-  // get the context of current function
-  std::vector<BasicBlock *> getFirstBasicBlockPred(BasicBlock *b) {
-    assert(isFirstBB(b));
-    std::vector<BasicBlock *> v;
-
-    Function *F = b->getParent();
-    std::vector<int> critical;
-    for (auto arg = F->arg_begin(); arg != F->arg_end(); arg++) {
-      if (isFunctionPtrType(arg->getType()))
-        critical.push_back(arg->getArgNo());
-    }
-
-    if (critical.empty()) {
-      return v;
-    }
-
-    auto site = possible_call_site.find(F);
-    if (site == possible_call_site.end()) {
-      possible_call_site[F] = std::set<BasicBlock *>();
-    } else {
-      for (auto b : site->second) {
-        // TODO 注意，并没有处理递归，但是并不难处理
-        auto site_pred = getBasicBlockPred(b);
-        v.insert(v.end(), site_pred.begin(), site_pred.end());
-      }
-    }
-    return v;
-  }
-
   std::vector<int> criticalParameter(Function *F) {
     std::vector<BasicBlock *> v;
     std::vector<int> critical;
@@ -509,39 +458,10 @@ struct FuncPtrPass : public ModulePass {
     return critical;
   }
 
-  // treat nothing has happened, if it can't be possble, then the framework
-  // breaks down ?
-  //
-  // how to change the name of ?
-  //
-  // part of parameter is usable ?
-  std::vector<BasicBlock *> getFunctionCallSite(Function *F) {
-    std::vector<BasicBlock *> v;
-    auto site = possible_call_site.find(F);
-    if (site == possible_call_site.end()) {
-      possible_call_site[F] = std::set<BasicBlock *>();
-    } else {
-      for (auto b : site->second) {
-        // TODO 注意，并没有处理递归，但是并不难处理
-        /* auto site_pred = getBasicBlockPred(b); */
-        /* v.insert(v.end(), site_pred.begin(), site_pred.end()); */
-      }
-    }
-    return v;
-  }
-
-  // should I changed my mind ?
-  bool isFunctionRready(Function *F) {
-    // has function pointer type parameter
-    // but don't have anything context (first bb pred)
-
-    return false;
-  }
-
   bool runOnModule(Module &M) override {
-
     for (auto F = M.begin(); F != M.end(); F++) {
       for (auto arg = F->arg_begin(); arg != F->arg_end(); arg++) {
+
       }
     }
 
@@ -549,12 +469,9 @@ struct FuncPtrPass : public ModulePass {
     break_module(M);
     /* print_module(M); */
 
-    if (true) {
-      return true;
-    }
+    return true;
 
     PointToVisitor visitor;
-    DataflowResult<PointToInfo>::Type result;
     PointToInfo initval; // 似乎其实没用 ?
 
     std::set<BasicBlock *> worklist;
@@ -564,7 +481,7 @@ struct FuncPtrPass : public ModulePass {
     for (auto F = M.rbegin(); F != M.rend(); F++) {
       for (Function::iterator bi = F->begin(); bi != F->end(); ++bi) {
         BasicBlock *bb = &*bi;
-        result.insert(std::make_pair(bb, std::make_pair(initval, initval)));
+        pointToResult.insert(std::make_pair(bb, std::make_pair(initval, initval)));
         worklist.insert(bb);
       }
     }
@@ -577,16 +494,7 @@ struct FuncPtrPass : public ModulePass {
 
         PointToInfo bbinval;
 
-        /* auto pred = getBasicBlockPred(bb); */
-        /* for (auto p : pred) { */
-        /*   visitor.merge(&bbinval, result[p].second); */
-        /* } */
-
         if (isFirstBB(bb)) {
-          // get all the context
-          // for every context, use it df value
-          // handle the parameter assignment !
-
           Function *curr_func = bb->getParent();
 
           auto find = possible_call_site.find(curr_func);
@@ -610,7 +518,7 @@ struct FuncPtrPass : public ModulePass {
 
             // merge
             for (auto call_site : all_call_site) {
-              visitor.merge(&bbinval, result[call_site->getParent()].second);
+              visitor.merge(&bbinval, pointToResult[call_site->getParent()].second);
             }
 
             auto para = criticalParameter(curr_func);
@@ -625,7 +533,7 @@ struct FuncPtrPass : public ModulePass {
 
                   for (auto call_site : all_call_site) {
                     auto call_site_bb = call_site->getParent();
-                    PointToInfo &call_site_info = result[call_site_bb].first;
+                    PointToInfo &call_site_info = pointToResult[call_site_bb].first;
 
                     auto index = arg->getArgNo();
                     auto actual_para = call_site->User::getOperand(index);
@@ -650,18 +558,18 @@ struct FuncPtrPass : public ModulePass {
           std::vector<BasicBlock *> v;
           for (pred_iterator pi = pred_begin(bb), pe = pred_end(bb); pi != pe;
                pi++) {
-            visitor.merge(&bbinval, result[bb].second);
+            visitor.merge(&bbinval, pointToResult[bb].second);
           }
         }
 
-        result[bb].first = bbinval;      // TODO 测试是否为深拷贝
+        pointToResult[bb].first = bbinval;      // TODO 测试是否为深拷贝
         visitor.compDFVal(bb, &bbinval); // 将inval 装换为 exitval
 
         // If outgoing value changed, propagate it along the CFG
-        if (bbinval == result[bb].second)
+        if (bbinval == pointToResult[bb].second)
           continue;
         changed = true;
-        result[bb].second = bbinval;
+        pointToResult[bb].second = bbinval;
       }
     }
 

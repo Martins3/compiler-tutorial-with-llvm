@@ -12,13 +12,6 @@ One approach is to extend the provided dataflow analysis framework as follows:
 https://www.cs.cmu.edu/~aldrich/courses/15-819O-13sp/resources/pointer.pdf
 https://www.cs.utexas.edu/users/lin/papers/cgo11.pdf
 
-## Read the test case
-11. should be ok :
-18. 
-24. malloc `*mf_ptr` should handle specially(maybe never tested)
-
-
-## TODO
 All the time, we are handling the same problem,
 what if one of some "crash", the answer is clear :
 after this instruction, the dfval is cleaned !
@@ -26,15 +19,22 @@ after this instruction, the dfval is cleaned !
 but the algorithm works even the dataflow is random,
 by clean the dfval
 
+- point to relation : not only function, but struct
+- type : not only function ptr, but any constant
 
-1. functionPtrLevel :
-  1. build when there is no struct
-  2. we check it at load store instruction()
-  3. for constant : we'll never build pts for 
-  4. store : it shutdown the dfval ?
-  5. isConstant :
+
+## Read the test case
+11. should be ok :
+18. 
+24. malloc `*mf_ptr` should handle specially(maybe never tested)
+
+
+## TODO
+1. test interprocedure_call
+2. 
+
+
   
-
 
 **NO RA, unless totally sure !**
 
@@ -47,7 +47,6 @@ by clean the dfval
 There are some modication for the IR.
 
 2. the influence for the store inst.
-
 
 ```c
 #include <stdlib.h>

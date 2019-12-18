@@ -2,6 +2,7 @@
 struct fptr
 {
   int (*p_fptr)(int, int);
+  int m;
 };
 
 struct sfptr{
@@ -65,6 +66,7 @@ int moo(char x, int op1, int op2) {
   a.p_fptr = minus;
   a.p_fptr(1, 2);
 
+  a.m =  88888888;
   struct sfptr g;
   g.a = &a;
   g.a->p_fptr(1, 2);

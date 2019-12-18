@@ -122,8 +122,6 @@ DataflowResult<PointToInfo>::Type pointToResult;
 class PointToVisitor {
 public:
   PointToVisitor() {}
-  // meet 操作，实现为 union 的 ?
-
   void merge(PointToInfo *dest, const PointToInfo &src) { dest->merge(src); }
 
   void compDFVal(Instruction *inst, PointToInfo *dfval) {
@@ -135,7 +133,6 @@ public:
     if (auto store = dyn_cast<StoreInst>(inst)) {
       auto pointer = store->getPointerOperand();
       auto value = store->getValueOperand();
-
       dfval->setupConstantPTS(value);
 
       if (!dfval->isNotEmpty(pointer)) {
@@ -153,12 +150,9 @@ public:
         }
 
         if (!dfval->isNotEmpty(value)) {
-          // many one rely on me, but I'am not ready.
-          dfval->shutdown();
-          return;
+          dfval->setNotReady(*i);
         } else {
-          std::set<Value *> &my_set = dfval->getPTS(value);
-          temp.getPTS(*i) = my_set;
+          temp.clear(*i) = dfval->getPTS(value);
         }
       }
       merge(dfval, temp);
@@ -167,7 +161,6 @@ public:
     // y = *x
     if (auto location = dyn_cast<LoadInst>(inst)) {
       auto pointer = location->getPointerOperand();
-
       std::set<Value *> &val_set = dfval->clear(location);
 
       if (!dfval->isNotEmpty(pointer)) {
@@ -209,75 +202,76 @@ public:
     }
 
     if (auto call = dyn_cast<CallInst>(inst)) {
-      if (interprocedure_call.find(call) != interprocedure_call.end()) {
-        auto bb = call->getParent();
-        assert(&*bb->begin() == call);
+      if (interprocedure_call.find(call) == interprocedure_call.end())
+        return;
 
-        // init point_to_set
-        std::set<Function *> point_to_set;
-        if (auto f = call->getFunction()) {
-          point_to_set.insert(f);
-        } else {
-          auto caller = call->getCalledValue();
-          if (dfval->isNotEmpty(caller)) {
-            std::set<Value *> func = dfval->getPTS(caller);
-            for (Value *v : func) {
-              if (auto f = dyn_cast<Function>(v)) {
-                point_to_set.insert(f);
-              } else {
-                errs() << "This is a call inst, it should be a function\n";
-                assert(false);
-              }
+      auto bb = call->getParent();
+      assert(&*bb->begin() == call);
+
+      // init point_to_set
+      std::set<Function *> point_to_set;
+      if (auto f = call->getFunction()) {
+        point_to_set.insert(f);
+      } else {
+        auto caller = call->getCalledValue();
+        if (dfval->isNotEmpty(caller)) {
+          std::set<Value *> func = dfval->getPTS(caller);
+          for (Value *v : func) {
+            if (auto f = dyn_cast<Function>(v)) {
+              point_to_set.insert(f);
+            } else {
+              errs() << "This is a call inst, it should be a function\n";
+              assert(false);
             }
-          } else {
-            dfval->shutdown();
-            return;
           }
+        } else {
+          dfval->shutdown();
+          return;
         }
+      }
 
-        // update possible_call_site
-        auto call_bb = call->getParent();
-        for (auto call_site : possible_call_site) {
-          auto a = call_site.first;
-          auto &b = call_site.second;
-          if (point_to_set.find(a) != point_to_set.end()) {
-            b.insert(call_bb);
-          } else {
-            b.erase(call_bb);
-          }
+      // update possible_call_site
+      auto call_bb = call->getParent();
+      for (auto call_site : possible_call_site) {
+        auto a = call_site.first;
+        auto &b = call_site.second;
+        if (point_to_set.find(a) != point_to_set.end()) {
+          b.insert(call_bb);
+        } else {
+          b.erase(call_bb);
         }
+      }
 
-        // handle return value
-        bool hasFnPointerRet = call->getType()->isVoidTy();
-        dfval->shutdown();
+      // handle return value
+      bool hasFnPointerRet = call->getType()->isVoidTy();
+      dfval->shutdown();
 
-        std::vector<BasicBlock *> all_call_site_bb;
-        for (Function *call_site : point_to_set) {
-          /* func_ret_bb.find(f); */
-          auto &retBB = func_ret_bb[call_site];
-          for (BasicBlock *ret : retBB) {
-            // purge all the local parameter of that function ?
-            // no, you can't. if the parameter is int *******a;
-            merge(dfval, pointToResult[ret].second);
-            if (hasFnPointerRet)
-              all_call_site_bb.push_back(ret);
-          }
+      std::vector<BasicBlock *> all_call_site_bb;
+      for (Function *call_site : point_to_set) {
+        /* func_ret_bb.find(f); */
+        auto &retBB = func_ret_bb[call_site];
+        for (BasicBlock *ret : retBB) {
+          // purge all the local parameter of that function ?
+          // no, you can't. if the parameter is int *******a;
+          merge(dfval, pointToResult[ret].second);
+          if (hasFnPointerRet)
+            all_call_site_bb.push_back(ret);
         }
+      }
 
-        // update return value
-        std::set<Value *> &set = dfval->clear(call);
-        for (auto ret : all_call_site_bb) {
-          ReturnInst *retInst = dyn_cast<ReturnInst>(&*(ret->rbegin()));
-          auto retVal = retInst->getReturnValue();
-          pointToResult[ret].second.setupConstantPTS(retVal);
+      // update return value
+      std::set<Value *> &set = dfval->clear(call);
+      for (auto ret : all_call_site_bb) {
+        ReturnInst *retInst = dyn_cast<ReturnInst>(&*(ret->rbegin()));
+        auto retVal = retInst->getReturnValue();
+        pointToResult[ret].second.setupConstantPTS(retVal);
 
-          if (pointToResult[ret].second.isNotEmpty(retInst)) {
-            std::set<Value *> t = pointToResult[ret].second.getPTS(retInst);
-            set.insert(t.begin(), t.end());
-          } else {
-            dfval->setNotReady(call);
-            return;
-          }
+        if (pointToResult[ret].second.isNotEmpty(retInst)) {
+          std::set<Value *> t = pointToResult[ret].second.getPTS(retInst);
+          set.insert(t.begin(), t.end());
+        } else {
+          dfval->setNotReady(call);
+          return;
         }
       }
     }
@@ -306,24 +300,6 @@ struct FuncPtrPass : public ModulePass {
       }
     }
     return true;
-  }
-
-  void debug_helper_call(CallInst *call) {
-
-    if (call->getFunction()->isIntrinsic())
-      return;
-
-    errs() << *call << "<----\n";
-    errs() << "getCalledValue" << *(call->getCalledValue()) << "\n";
-    errs() << "getName" << call->getName() << "\n";
-
-    /* int n = call->getNumOperands(); */
-    /* n = call->getNumArgOperands(); */
-    /* for (int i = 0; i < n; ++i) { */
-    /*   Value *v = call->getOperand(i); */
-    /*   errs() << *v << "\n"; */
-    /* } */
-    /* errs() << "-------]\n"; */
   }
 
   bool break_function(Function *F) {
@@ -406,7 +382,6 @@ struct FuncPtrPass : public ModulePass {
       }
     }
 
-    print_module(M);
     break_module(M);
     /* print_module(M); */
 
@@ -537,7 +512,10 @@ int main(int argc, char **argv) {
       argc, argv, "FuncPtrPass \n My first LLVM too which does not do much.\n");
 
   // Load the input module
-  std::unique_ptr<Module> M = parseIRFile(InputFilename, Err, Context);
+  % 10 = getelementptr inbounds % struct.fptr, % struct.fptr * % 4, i32 0,
+    i32 1, !dbg !116 store i32 88888888, i32 * % 10, align 8,
+    !dbg !117 std::unique_ptr<Module> M =
+        parseIRFile(InputFilename, Err, Context);
   if (!M) {
     Err.print(argv[0], errs());
     return 1;

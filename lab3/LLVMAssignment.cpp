@@ -127,31 +127,9 @@ public:
 // 3. for every variable : init and query(query not exit, then treat it
 // as empty)
 std::set<CallInst *> interprocedure_call;
-// not all inst is interprocedure_call. TODO init at break
 std::map<Function *, std::set<BasicBlock *>> func_ret_bb;
 std::map<Function *, std::set<BasicBlock *>> possible_call_site;
-
-// TODO every function should be register already !
 DataflowResult<PointToInfo>::Type pointToResult;
-// TODO notice, what kept here aer not pointers
-
-
-// TODO init empty PointToInfo for every basic block
-// in fact, parameter and instruction, we can find out !
-// maybe if access with [], there are some magical schema.
-void initPointToResult() {
-  
-}
-
-// rebuild empty log : we have a better way to handle the empty set !
-//
-// someone is uninit
-
-bool updateGEP(GetElementPtrInst *gep, const PointToInfo *dfval) {
-  // TODO merge the point to set, if any one is not find or empty, return false.
-  auto parent = gep->getPointerOperand();
-  return false;
-}
 
 class PointToVisitor {
   GetElementPtrInst *last_gep;
@@ -399,6 +377,7 @@ struct FuncPtrPass : public ModulePass {
               continue;
             }
             B->splitBasicBlock(I);
+            interprocedure_call.insert(call);
             return true;
           }
 
@@ -407,6 +386,7 @@ struct FuncPtrPass : public ModulePass {
         } else if (auto store = dyn_cast<StoreInst>(I)) {
 
         } else if (auto gep = dyn_cast<GetElementPtrInst>(I)) {
+
           /* gep->getPointerOperand(); */
           /* assert(gep->getNumIndices() == 2); */
           errs() << "The gep : " << *gep << "\n";
@@ -430,6 +410,12 @@ struct FuncPtrPass : public ModulePass {
   void break_module(Module &M) {
     for (auto F = M.begin(); F != M.end(); F++) {
       func.insert(F->getName());
+      for (auto B = F->begin(); B != F->end(); B++) {
+        auto si = succ_begin(&*B), se = succ_end(&*B);
+        if (si == se) {
+          func_ret_bb[&*F].insert(&*B);
+        }
+      }
     }
     for (auto F = M.begin(); F != M.end(); F++) {
       while (break_function(&*F))
@@ -461,7 +447,6 @@ struct FuncPtrPass : public ModulePass {
   bool runOnModule(Module &M) override {
     for (auto F = M.begin(); F != M.end(); F++) {
       for (auto arg = F->arg_begin(); arg != F->arg_end(); arg++) {
-
       }
     }
 
@@ -481,7 +466,8 @@ struct FuncPtrPass : public ModulePass {
     for (auto F = M.rbegin(); F != M.rend(); F++) {
       for (Function::iterator bi = F->begin(); bi != F->end(); ++bi) {
         BasicBlock *bb = &*bi;
-        pointToResult.insert(std::make_pair(bb, std::make_pair(initval, initval)));
+        pointToResult.insert(
+            std::make_pair(bb, std::make_pair(initval, initval)));
         worklist.insert(bb);
       }
     }
@@ -518,7 +504,8 @@ struct FuncPtrPass : public ModulePass {
 
             // merge
             for (auto call_site : all_call_site) {
-              visitor.merge(&bbinval, pointToResult[call_site->getParent()].second);
+              visitor.merge(&bbinval,
+                            pointToResult[call_site->getParent()].second);
             }
 
             auto para = criticalParameter(curr_func);
@@ -533,7 +520,8 @@ struct FuncPtrPass : public ModulePass {
 
                   for (auto call_site : all_call_site) {
                     auto call_site_bb = call_site->getParent();
-                    PointToInfo &call_site_info = pointToResult[call_site_bb].first;
+                    PointToInfo &call_site_info =
+                        pointToResult[call_site_bb].first;
 
                     auto index = arg->getArgNo();
                     auto actual_para = call_site->User::getOperand(index);
@@ -562,8 +550,8 @@ struct FuncPtrPass : public ModulePass {
           }
         }
 
-        pointToResult[bb].first = bbinval;      // TODO 测试是否为深拷贝
-        visitor.compDFVal(bb, &bbinval); // 将inval 装换为 exitval
+        pointToResult[bb].first = bbinval; // TODO 测试是否为深拷贝
+        visitor.compDFVal(bb, &bbinval);   // 将inval 装换为 exitval
 
         // If outgoing value changed, propagate it along the CFG
         if (bbinval == pointToResult[bb].second)

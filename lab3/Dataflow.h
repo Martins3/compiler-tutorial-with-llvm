@@ -143,7 +143,6 @@ void compBackwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
   }
 }
 
-// 对于每一个block输出 in out
 template <class T>
 void printDataflowResult(raw_ostream &out,
                          const typename DataflowResult<T>::Type &dfresult) {
@@ -152,13 +151,12 @@ void printDataflowResult(raw_ostream &out,
     if (it->first == NULL)
       out << "*";
     else{
-      /* it->first->dump(); */
-      /* errs() << it->first << "\n"; */
       Function * f = it->first->getParent();
-      errs() << f->getName() << "\n";
+      errs() << f->getName();
+      errs() << *(it->first) << "\n";
     }
-    out << "\n\tin : " << it->second.first << "\n\tout :  " << it->second.second
-        << "\n";
+    out << "\nin : " << it->second.first << "\nout :  " << it->second.second
+        << "\n\n";
   }
 }
 

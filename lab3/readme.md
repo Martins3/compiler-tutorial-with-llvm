@@ -12,6 +12,8 @@ One approach is to extend the provided dataflow analysis framework as follows:
 https://www.cs.cmu.edu/~aldrich/courses/15-819O-13sp/resources/pointer.pdf
 https://www.cs.utexas.edu/users/lin/papers/cgo11.pdf
 
+**https://llvm.org/docs/TypeMetadata.html**
+
 All the time, we are handling the same problem,
 what if one of some "crash", the answer is clear :
 after this instruction, the dfval is cleaned !
@@ -33,6 +35,7 @@ by clean the dfval
 1. test interprocedure_call
 2. 
 
+## DEBUG FIX
 
   
 

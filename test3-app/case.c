@@ -47,6 +47,18 @@ void K(GG a, GG b, int x){
   a(1, 2);
 }
 
+void KK(int x){
+  int a = 1;
+  int b = 2;
+  int * gg;
+  if(x){
+    gg = &a;
+  }else{
+    gg = &b;
+  }
+  *gg = 1111111;
+}
+
 int moo(char x, int op1, int op2) {
 
   struct fptr a;

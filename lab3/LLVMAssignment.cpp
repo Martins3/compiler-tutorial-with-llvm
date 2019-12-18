@@ -65,20 +65,6 @@ struct EnableFunctionOptPass : public FunctionPass {
 char EnableFunctionOptPass::ID = 0;
 #endif
 
-int functionPtrLevel(Type *t) {
-  int level = 0;
-  while (t->isPointerTy()) {
-    t = t->getPointerElementType();
-    level++;
-  }
-  if (t->isFunctionTy()) {
-    return level;
-  }
-  return -1;
-}
-
-bool isFunctionPtrType(Type *t) { return functionPtrLevel(t) != -1; }
-
 class PointToInfo {
 private:
   std::map<Value *, std::set<Value *>> point;
@@ -120,45 +106,25 @@ public:
       }
     }
   }
+
+  void setupConstantPTS(Value *v) {
+    if (auto f = dyn_cast<Constant>(v)) {
+      clear(v).insert(v);
+    }
+  }
 };
 
-// 1. for cirital msg : easy
-// 2. for every block : must
-// 3. for every variable : init and query(query not exit, then treat it
-// as empty)
 std::set<CallInst *> interprocedure_call;
 std::map<Function *, std::set<BasicBlock *>> func_ret_bb;
 std::map<Function *, std::set<BasicBlock *>> possible_call_site;
 DataflowResult<PointToInfo>::Type pointToResult;
 
 class PointToVisitor {
-  GetElementPtrInst *last_gep;
-
 public:
-  PointToVisitor() : last_gep(nullptr) {}
+  PointToVisitor() {}
   // meet 操作，实现为 union 的 ?
 
   void merge(PointToInfo *dest, const PointToInfo &src) { dest->merge(src); }
-
-  bool loadStoreCheck(Value *pointer, Value *value) {
-    auto p_type = pointer->getType();
-    auto v_type = value->getType();
-    if (isFunctionPtrType(p_type)) {
-      int l_p = functionPtrLevel(p_type);
-      int l_v = functionPtrLevel(v_type);
-      assert(l_p = l_v + 1);
-      // TODO we should check both are variable, but how ?
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  void setupConstantPTS(PointToInfo *dfval, Value *value) {
-    if (auto f = dyn_cast<Function>(value)) {
-      dfval->clear(value).insert(f);
-    }
-  }
 
   void compDFVal(Instruction *inst, PointToInfo *dfval) {
     if (auto gep = dyn_cast<GetElementPtrInst>(inst)) {
@@ -170,10 +136,7 @@ public:
       auto pointer = store->getPointerOperand();
       auto value = store->getValueOperand();
 
-      setupConstantPTS(dfval, value);
-
-      if (!loadStoreCheck(pointer, value))
-        return;
+      dfval->setupConstantPTS(value);
 
       if (!dfval->isNotEmpty(pointer)) {
         dfval->shutdown(); // store to anywhere, crash it!
@@ -204,8 +167,6 @@ public:
     // y = *x
     if (auto location = dyn_cast<LoadInst>(inst)) {
       auto pointer = location->getPointerOperand();
-      if (!loadStoreCheck(pointer, location))
-        return;
 
       std::set<Value *> &val_set = dfval->clear(location);
 
@@ -227,24 +188,21 @@ public:
 
       if (auto phi = dyn_cast<PHINode>(inst)) {
         /* errs() << *phi << "\n"; */
-        auto level = functionPtrLevel(phi->getType());
-        if (level != -1) {
-          std::set<Value *> &set = dfval->clear(phi);
-          /* errs() << "Parent level : " << level << "\n"; */
+        std::set<Value *> &set = dfval->clear(phi);
+        /* errs() << "Parent level : " << level << "\n"; */
 
-          for (auto v = phi->op_begin(); v != phi->op_end(); v++) {
-            Value *val = v->get();
-            setupConstantPTS(dfval, v->get());
-            /* errs() << "pts :" << functionPtrLevel(val->getType()) << "\n"; */
-            assert(level == functionPtrLevel(val->getType()));
+        for (auto v = phi->op_begin(); v != phi->op_end(); v++) {
+          Value *val = v->get();
+          dfval->setupConstantPTS(val);
+          /* errs() << "pts :" << functionPtrLevel(val->getType()) << "\n"; */
 
-            if (dfval->isNotEmpty(val)) {
-              std::set<Value *> &pts = dfval->getPTS(val);
-              set.insert(pts.begin(), pts.end());
-            } else {
-              dfval->setNotReady(phi); // one of my source failed me !
-              return;
-            }
+          // empty caused by : not ready or current is pointer !
+          if (dfval->isNotEmpty(val)) {
+            std::set<Value *> &pts = dfval->getPTS(val);
+            set.insert(pts.begin(), pts.end());
+          } else {
+            dfval->setNotReady(phi);
+            return;
           }
         }
       }
@@ -290,7 +248,7 @@ public:
         }
 
         // handle return value
-        bool hasFnPointerRet = isFunctionPtrType(call->getType());
+        bool hasFnPointerRet = call->getType()->isVoidTy();
         dfval->shutdown();
 
         std::vector<BasicBlock *> all_call_site_bb;
@@ -310,6 +268,9 @@ public:
         std::set<Value *> &set = dfval->clear(call);
         for (auto ret : all_call_site_bb) {
           ReturnInst *retInst = dyn_cast<ReturnInst>(&*(ret->rbegin()));
+          auto retVal = retInst->getReturnValue();
+          pointToResult[ret].second.setupConstantPTS(retVal);
+
           if (pointToResult[ret].second.isNotEmpty(retInst)) {
             std::set<Value *> t = pointToResult[ret].second.getPTS(retInst);
             set.insert(t.begin(), t.end());
@@ -384,15 +345,20 @@ struct FuncPtrPass : public ModulePass {
         } else if (auto phi = dyn_cast<PHINode>(I)) {
 
         } else if (auto store = dyn_cast<StoreInst>(I)) {
+          auto v = store->getValueOperand();
+          if (dyn_cast<Constant>(v)) {
+            errs() << "The store : " << *store << "\n";
+            errs() << *v << "\n";
+          }
 
         } else if (auto gep = dyn_cast<GetElementPtrInst>(I)) {
 
           /* gep->getPointerOperand(); */
           /* assert(gep->getNumIndices() == 2); */
+          continue;
           errs() << "The gep : " << *gep << "\n";
           errs() << gep->getNumIndices() << "\n"; // assert this value
           errs() << *(gep->getType()) << "\n";
-          continue;
           for (auto idx = gep->idx_begin(); idx != gep->idx_end(); idx++) {
             errs() << "idx : " << *(idx->get()) << "\n";
           }
@@ -433,16 +399,6 @@ struct FuncPtrPass : public ModulePass {
   }
 
   bool isFirstBB(BasicBlock *b) { return &*(b->getParent()->begin()) == b; }
-
-  std::vector<int> criticalParameter(Function *F) {
-    std::vector<BasicBlock *> v;
-    std::vector<int> critical;
-    for (auto arg = F->arg_begin(); arg != F->arg_end(); arg++) {
-      if (isFunctionPtrType(arg->getType()))
-        critical.push_back(arg->getArgNo());
-    }
-    return critical;
-  }
 
   bool runOnModule(Module &M) override {
     for (auto F = M.begin(); F != M.end(); F++) {
@@ -508,32 +464,20 @@ struct FuncPtrPass : public ModulePass {
                             pointToResult[call_site->getParent()].second);
             }
 
-            auto para = criticalParameter(curr_func);
-            if (!para.empty()) {
-              // build parameter, if one of my source is not ready, then I'm not
-              // ready !
-              for (auto arg = curr_func->arg_begin();
-                   arg != curr_func->arg_end(); arg++) {
-                if (isFunctionPtrType(arg->getType())) {
-
-                  std::set<Value *> &dest = bbinval.clear(arg);
-
-                  for (auto call_site : all_call_site) {
-                    auto call_site_bb = call_site->getParent();
-                    PointToInfo &call_site_info =
-                        pointToResult[call_site_bb].first;
-
-                    auto index = arg->getArgNo();
-                    auto actual_para = call_site->User::getOperand(index);
-
-                    if (call_site_info.isNotEmpty(actual_para)) {
-                      auto &t = call_site_info.getPTS(actual_para);
-                      dest.insert(t.begin(), t.end());
-                    } else {
-                      bbinval.setNotReady(arg);
-                      break;
-                    }
-                  }
+            for (auto arg = curr_func->arg_begin(); arg != curr_func->arg_end();
+                 arg++) {
+              std::set<Value *> &dest = bbinval.clear(arg);
+              for (auto call_site : all_call_site) {
+                auto call_site_bb = call_site->getParent();
+                PointToInfo &call_site_info = pointToResult[call_site_bb].first;
+                auto actual_para = call_site->User::getOperand(arg->getArgNo());
+                call_site_info.setupConstantPTS(actual_para);
+                if (call_site_info.isNotEmpty(actual_para)) {
+                  auto &t = call_site_info.getPTS(actual_para);
+                  dest.insert(t.begin(), t.end());
+                } else {
+                  bbinval.setNotReady(arg);
+                  break;
                 }
               }
             }
@@ -551,7 +495,7 @@ struct FuncPtrPass : public ModulePass {
         }
 
         pointToResult[bb].first = bbinval; // TODO 测试是否为深拷贝
-        visitor.compDFVal(bb, &bbinval);   // 将inval 装换为 exitval
+        visitor.compDFVal(bb, &bbinval);
 
         // If outgoing value changed, propagate it along the CFG
         if (bbinval == pointToResult[bb].second)

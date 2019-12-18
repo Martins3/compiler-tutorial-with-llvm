@@ -27,27 +27,13 @@ but the algorithm works even the dataflow is random,
 by clean the dfval
 
 
-1. init what we need
-2. 
-
-
-
-
-What's meaning of empty point to set ?
-
-// make a table
-
-```c
-struct A{
-  struct a * m;
-}
-
-struct A{
-  struct a m;
-}
-// TODO handle differently ?
-// not my problem !
-```
+1. functionPtrLevel :
+  1. build when there is no struct
+  2. we check it at load store instruction()
+  3. for constant : we'll never build pts for 
+  4. store : it shutdown the dfval ?
+  5. isConstant :
+  
 
 
 **NO RA, unless totally sure !**

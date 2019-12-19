@@ -146,6 +146,10 @@ void compBackwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
 template <class T>
 void printDataflowResult(raw_ostream &out,
                          const typename DataflowResult<T>::Type &dfresult) {
+
+  out << "#######################################################################\n";
+  out << "#######################################################################\n";
+  out << "#######################################################################\n";
   for (typename DataflowResult<T>::Type::const_iterator it = dfresult.begin();
        it != dfresult.end(); ++it) {
     if (it->first == NULL)

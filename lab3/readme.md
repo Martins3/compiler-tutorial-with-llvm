@@ -27,16 +27,16 @@ by clean the dfval
 
 ## Read the test case
 11. should be ok :
-18. 
 24. malloc `*mf_ptr` should handle specially(maybe never tested)
 
 
 ## TODO
-1. test interprocedure_call
-2. 
+
+
 
 ## DEBUG FIX
-
+1. bitcast point to self ?
+2. 
   
 
 **NO RA, unless totally sure !**

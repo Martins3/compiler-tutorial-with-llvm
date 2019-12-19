@@ -32,11 +32,8 @@ by clean the dfval
 
 ## TODO
 
-
-
 ## DEBUG FIX
-1. bitcast point to self ?
-2. 
+
   
 
 **NO RA, unless totally sure !**

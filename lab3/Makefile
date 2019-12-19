@@ -21,6 +21,7 @@ clean:
 	rm -f ${TEST_CASE}
 	rm -f a.out
 
+
 test: ${TEST_CASE}
 	@echo "refresh case"
 

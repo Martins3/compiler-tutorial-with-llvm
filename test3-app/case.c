@@ -1,4 +1,12 @@
 #include <stdlib.h>
+struct fptr
+{
+	int (*p_fptr)(int, int);
+};
+struct fsptr
+{
+struct fptr * sptr;
+};
 int plus(int a, int b) {
    return a+b;
 }
@@ -6,35 +14,24 @@ int plus(int a, int b) {
 int minus(int a, int b) {
    return a-b;
 }
-
-int (*foo(int a, int b, int (*a_fptr)(int, int), int(*b_fptr)(int, int) ))(int, int) {
-   return a_fptr;
+void foo(int x)
+{
+	struct fptr a_fptr;
+	struct fsptr s_fptr;
+	struct fsptr* w_fptr=(struct fsptr*)malloc(sizeof(struct fsptr));
+	s_fptr.sptr=&a_fptr;
+	*w_fptr=s_fptr;
+	if(x>1)
+	{
+		 a_fptr.p_fptr=plus;
+		 x=s_fptr.sptr->p_fptr(1,x);
+		 a_fptr.p_fptr=minus;
+	}else
+	{
+		w_fptr->sptr->p_fptr=minus;
+	}
+	x=a_fptr.p_fptr(1,x);
 }
-
-int clever(int a, int b, int (*a_fptr)(int, int), int(**b_fptr)(int, int)) {
-   int (*s_fptr)(int, int);
-   s_fptr = foo(a, b, a_fptr, *b_fptr);
-   return s_fptr(a, b);
-}
-
-
-int moo(char x, int op1, int op2) {
-    int (*a_fptr)(int, int) = plus;
-    int (*s_fptr)(int, int) = minus;
-    int (**t_fptr)(int, int) = (int (**)(int, int))malloc(sizeof(int (*)(int, int)));
-
-    if (x == '+') {
-       *t_fptr = a_fptr;
-    } 
-    else if (x == '-') {
-       *t_fptr = s_fptr;
-    }
-    unsigned result = clever(op1, op2, a_fptr, t_fptr);
-    return 0;
-}
-
-
-/// 16 : foo
-/// 17 : plus
-/// 24 : malloc
-/// 32 : clever 
+// 21 : malloc
+// 27 : plus
+// 33 : minus

@@ -1,0 +1,78 @@
+15 : plus minus 
+31 : clever 
+28 : plus minus 
+21 : malloc 
+27 : plus 
+33 : minus 
+16 : foo 
+17 : plus 
+24 : malloc 
+32 : clever 
+25 : malloc 
+31 : minus 
+37 : plus 
+11 : malloc 
+15 : plus 
+21 : minus 
+25 : plus 
+31 : minus 
+21 : plus 
+37 : make_alias 
+38 : foo 
+15 : plus minus 
+19 : foo 
+35 : clever 
+39 : foo 
+40 : plus 
+44 : clever 
+45 : plus minus 
+47 : plus minus 
+10 : plus minus 
+14 : foo 
+30 : clever 
+27 : plus minus 
+24 : foo 
+28 : clever 
+30 : plus 
+20 : foo 
+21 : plus minus 
+37 : clever 
+22 : plus minus 
+41 : foo clever 
+42 : plus minus 
+22 : 
+27 : foo 
+44 : clever 
+30 : foo clever 
+31 : plus minus 
+11 : plus minus 
+21 : malloc 
+30 : clever 
+14 : plus minus 
+24 : foo 
+27 : foo 
+17 : plus 
+31 : make_simple_alias 
+32 : foo 
+10 : plus minus 
+26 : foo 
+33 : foo 
+17 : minus 
+29 : make_no_alias 
+30 : foo 
+11 : plus minus 
+18 : malloc 
+27 : clever 
+19 : plus 
+25 : minus 
+15 : plus minus 
+31 : clever 
+14 : plus minus 
+25 : malloc 
+26 : malloc 
+30 : foo 
+31 : make_simple_alias 
+33 : foo 
+21 : malloc 
+27 : plus 
+33 : minus 
